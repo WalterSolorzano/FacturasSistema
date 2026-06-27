@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "### Invoice Structure & Field Details (Position: Row/Column)  \n\n#### **Header Fields**  \n- **Invoice Type/Code**: \"FC\" (Row 2, Column B)  \n- **Invoice Number**: \"FC 000-0002468\" (Row 2, Column H)  \n- **Date**: \"3/9/2015\" (Row 3, Column I)  \n\n\n#### **Client Information**  \n- **Client Name**: \"HIDALGO FLORENCIO DANIEL\" (Row 4, Column B)  \n- **Client Address**: \"ARANGUREN JUAN F. DR. 1074\" (Row 5, Column B)  \n- **Client Location**: \"CAPITAL FEDERAL\" (Row 6, Column B)  \n- **Client Phone**: \"TEL: 4431-7323 / 155773-7869\" (Row 6, Column B)  \n- **Client Status**: \"CONTADO\" (Row 7, Column B)  \n- **Client Tax ID (C.U.I.T.)**: \"C.U.I.T.: 20-20785530-09\" (Row 8, Column B)  \n- **Client Contact**: \"CONTACTO : FLORENCIO\" (Row 9, Column B)  \n- **Remittance Number**: \"REMITO Nº 00000000\" (Row 9, Column H)  \n\n\n#### **Product Columns (Table Header)**  \n- **Quantity**: \"CANTIDAD\" (Row 11, Column B)  \n- **Product Code**: \"CODIGO\" (Row 11, Column C)  \n- **Description**: \"DESCRIPCION\" (Row 11, Column D)  \n- **Unit Price**: \"P.UNI\" (Row 11, Column G)  \n- **Total Price**: \"TOTAL\" (Row 11, Column I)  \n\n\n#### **Product Line Item**  \n- **Quantity**: \"40\" (Row 15, Column B)  \n- **Product Code**: \"S-0100\" (Row 15, Column C)  \n- **Description**: \"CUBREALFOMBRAS UNIVERSALES NEGRAS X 3P\" (Row 15, Column D)  \n- **Unit Price**: \"170.00\" (Row 15, Column G)  \n- **Total Price**: \"6800.00\" (Row 15, Column I)  \n\n\n#### **Totals Section**  \n- **Subtotal/Total**: \"6800.00\" (Row 15, Column I)  \n  *Note: No separate \"Totals\" row is visible, but the product line’s \"TOTAL\" column (I) aggregates to this value.*  \n\n\n#### **Tax/CAE Information**  \n- **Tax Code (CAE)**: \"0-00066\" (Row 4, Column E)  \n  *Note: No additional tax rate or CAE expiration details are visible in the provided image.*  \n\n\n### Summary of Visible Text Labels & Values  \n| **Category**       | **Label/Value**                          | **Position (Row/Column)** |  \n|---------------------|------------------------------------------|--------------------------|  \n| Header              | FC                                        | 2/B                      |  \n| Header              | FC 000-0002468                            | 2/H                      |  \n| Header              | 3/9/2015                                  | 3/I                      |  \n| Client Info         | HIDALGO FLORENCIO DANIEL                  | 4/B                      |  \n| Client Info         | ARANGUREN JUAN F. DR. 1074                | 5/B                      |  \n| Client Info         | CAPITAL FEDERAL                           | 6/B                      |  \n| Client Info         | TEL: 4431-7323 / 155773-7869               | 6/B                      |  \n| Client Info         | CONTADO                                   | 7/B                      |  \n| Client Info         | C.U.I.T.: 20-20785530-09                  | 8/B                      |  \n| Client Info         | CONTACTO : FLORENCIO                      | 9/B                      |  \n| Client Info         | REMITO Nº 00000000                        | 9/H                      |  \n| Product Columns     | CANTIDAD                                  | 11/B                     |  \n| Product Columns     | CODIGO                                    | 11/C                     |  \n| Product Columns     | DESCRIPCION                               | 11/D                     |  \n| Product Columns     | P.UNI                                     | 11/G                     |  \n| Product Columns     | TOTAL                                     | 11/I                     |  \n| Product Line        | 40                                        | 15/B                     |  \n| Product Line        | S-0100                                    | 15/C                     |  \n| Product Line        | CUBREALFOMBRAS UNIVERSALES NEGRAS X 3P     | 15/D                     |  \n| Product Line        | 170.00                                    | 15/G                     |  \n| Product Line        | 6800.00                                   | 15/I                     |  \n| Tax/CAE             | 0-00066                                   | 4/E                      |",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1782580493,
+  "id": "20260628011424491e1f9d92644869",
+  "model": "glm-4.6v",
+  "object": "chat.completion",
+  "request_id": "20260628011424491e1f9d92644869",
+  "usage": {
+    "completion_tokens": 1113,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 506,
+    "prompt_tokens_details": {
+      "cached_tokens": 5
+    },
+    "total_tokens": 1619
+  }
+}
