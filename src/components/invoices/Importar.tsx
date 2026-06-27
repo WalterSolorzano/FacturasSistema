@@ -12,6 +12,7 @@ import {
   ChevronUp,
   ShieldCheck,
   Eye,
+  FileWarning,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,8 +34,12 @@ interface FacturaPreview {
   }[];
   total: number;
   hoja: string;
+  archivoOrigen: string;
+  advertencias: string[];
   errores: string[];
   exito: boolean;
+  _numeroDeHoja: boolean;
+  _fechaDudosa: boolean;
 }
 
 interface ImportResult {
@@ -50,7 +55,7 @@ function formatMoney(v: number): string {
 }
 
 function formatDate(iso: string): string {
-  if (!iso) return "-";
+  if (!iso) return "SIN FECHA";
   return new Date(iso).toLocaleDateString("es-AR");
 }
 
@@ -69,7 +74,13 @@ export function Importar() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [selectedAll, setSelectedAll] = useState(true);
-  const [importResult, setImportResult] = useState<{ importadas: number; duplicadas: number; errores: string[] } | null>(null);
+  const [importResult, setImportResult] = useState<{
+    importadas: number;
+    duplicadas: number;
+    omitidasFecha: number;
+    errores: string[];
+    resumen: string[];
+  } | null>(null);
 
   const procesarArchivo = useCallback(async (file: File) => {
     setLoading(true);
@@ -132,7 +143,13 @@ export function Importar() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      setImportResult({ importadas: data.importadas, duplicadas: data.duplicadas, errores: data.errores || [] });
+      setImportResult({
+        importadas: data.importadas,
+        duplicadas: data.duplicadas,
+        omitidasFecha: data.omitidasFecha || 0,
+        errores: data.errores || [],
+        resumen: data.resumen || [],
+      });
       setPaso("resultado");
       triggerRefresh();
     } catch (err) {
@@ -167,6 +184,10 @@ export function Importar() {
   };
 
   const exitosasSeleccionadas = result ? result.facturas.filter((_, i) => selected.has(i) && result.facturas[i].exito).length : 0;
+
+  // Contar facturas con advertencias
+  const conAdvertencias = result ? result.facturas.filter((f) => f.advertencias && f.advertencias.length > 0).length : 0;
+  const sinFecha = result ? result.facturas.filter((f) => f._fechaDudosa || !f.fecha).length : 0;
 
   // PASO: SUBIR ARCHIVO
   if (paso === "subir") {
@@ -206,6 +227,11 @@ export function Importar() {
           <FileSpreadsheet className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
           <p className="text-sm text-blue-800"><strong>Formato esperado:</strong> Cada hoja del Excel debe ser una factura con las columnas CANTIDAD, CODIGO, DESCRIPCION, P.UNI y TOTAL. El sistema detecta automáticamente el formato.</p>
         </div>
+
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
+          <ShieldCheck className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-amber-800"><strong>Integridad de datos:</strong> No se inventa ni modifica ningún dato. Si una factura no tiene fecha válida, se rechaza. Si un número no se detecta, se marca para verificación manual. Todo queda registrado en la hoja de Trazabilidad.</p>
+        </div>
       </div>
     );
   }
@@ -228,16 +254,29 @@ export function Importar() {
             <p className="text-3xl font-bold text-purple-700 my-3">{importResult.importadas} factura(s) importada(s)</p>
             <div className="flex justify-center gap-6 text-sm text-stone-500">
               {importResult.duplicadas > 0 && <span className="text-amber-600">{importResult.duplicadas} duplicada(s) omitida(s)</span>}
+              {importResult.omitidasFecha > 0 && <span className="text-rose-600">{importResult.omitidasFecha} rechazada(s) por falta de fecha</span>}
             </div>
           </CardContent>
         </Card>
 
-        {importResult.errores.length > 0 && (
+        {/* Resumen de advertencias de la operación */}
+        {importResult.resumen && importResult.resumen.length > 0 && (
           <Card className="border border-amber-200">
             <CardContent className="p-5">
-              <h4 className="font-semibold text-amber-700 mb-2">Advertencias</h4>
+              <h4 className="font-semibold text-amber-700 mb-2">Resumen</h4>
               <ul className="space-y-1">
-                {importResult.errores.map((err, i) => <li key={i} className="text-xs text-amber-600">{err}</li>)}
+                {importResult.resumen.map((r, i) => <li key={i} className="text-xs text-amber-600">- {r}</li>)}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
+        {importResult.errores.length > 0 && (
+          <Card className="border border-rose-200">
+            <CardContent className="p-5">
+              <h4 className="font-semibold text-rose-700 mb-2">Errores detallados</h4>
+              <ul className="space-y-1 max-h-40 overflow-y-auto">
+                {importResult.errores.map((err, i) => <li key={i} className="text-xs text-rose-600 font-mono">- {err}</li>)}
               </ul>
             </CardContent>
           </Card>
@@ -270,7 +309,7 @@ export function Importar() {
         </Button>
       </div>
 
-      {/* Barra de progreso de pasos */}
+      {/* Barra de progreso */}
       <div className="flex items-center gap-2 text-xs">
         <div className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-purple-700" /><span className="font-medium text-purple-800">Paso 1: Cargar archivo</span></div>
         <div className="w-8 h-px bg-purple-300" />
@@ -283,22 +322,26 @@ export function Importar() {
       <Card className="border-0 shadow-sm">
         <CardContent className="p-5">
           <h3 className="font-semibold text-stone-900 mb-3">Resultado del análisis</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <div className="p-3 rounded-lg bg-purple-50 text-center">
               <p className="text-2xl font-bold text-purple-800">{result.exitosas}</p>
               <p className="text-xs text-purple-700">Extraídas bien</p>
             </div>
-            <div className={`p-3 rounded-lg text-center ${result.conErrores > 0 ? "bg-amber-50" : "bg-stone-50"}`}>
-              <p className={`text-2xl font-bold ${result.conErrores > 0 ? "text-amber-700" : "text-stone-400"}`}>{result.conErrores}</p>
-              <p className="text-xs text-amber-600">Con errores</p>
+            <div className={`p-3 rounded-lg text-center ${result.conErrores > 0 ? "bg-rose-50" : "bg-stone-50"}`}>
+              <p className={`text-2xl font-bold ${result.conErrores > 0 ? "text-rose-600" : "text-stone-400"}`}>{result.conErrores}</p>
+              <p className="text-xs text-rose-500">Con errores</p>
+            </div>
+            <div className={`p-3 rounded-lg text-center ${conAdvertencias > 0 ? "bg-amber-50" : "bg-stone-50"}`}>
+              <p className={`text-2xl font-bold ${conAdvertencias > 0 ? "text-amber-600" : "text-stone-400"}`}>{conAdvertencias}</p>
+              <p className="text-xs text-amber-600">Con advertencias</p>
+            </div>
+            <div className={`p-3 rounded-lg text-center ${sinFecha > 0 ? "bg-rose-50" : "bg-stone-50"}`}>
+              <p className={`text-2xl font-bold ${sinFecha > 0 ? "text-rose-600" : "text-stone-400"}`}>{sinFecha}</p>
+              <p className="text-xs text-rose-500">Sin fecha</p>
             </div>
             <div className="p-3 rounded-lg bg-stone-50 text-center">
               <p className="text-2xl font-bold text-stone-400">{result.vacias}</p>
               <p className="text-xs text-stone-500">Hojas vacías</p>
-            </div>
-            <div className="p-3 rounded-lg bg-stone-50 text-center">
-              <p className="text-2xl font-bold text-stone-600">{result.totalHojas}</p>
-              <p className="text-xs text-stone-500">Total hojas</p>
             </div>
           </div>
         </CardContent>
@@ -316,73 +359,109 @@ export function Importar() {
           </div>
 
           <div className="space-y-2 max-h-[450px] overflow-y-auto">
-            {result.facturas.map((fac, idx) => (
-              <div key={idx} className={`rounded-lg border p-3 transition-colors ${fac.exito ? selected.has(idx) ? "border-purple-300 bg-purple-50/50" : "border-stone-200 bg-white hover:bg-stone-50" : "border-amber-200 bg-amber-50/50 opacity-70"}`}>
-                <div className="flex items-center gap-3">
-                  {fac.exito ? (
-                    <input type="checkbox" checked={selected.has(idx)} onChange={() => toggleSelect(idx)} className="w-4 h-4 rounded border-stone-300 text-purple-700 focus:ring-purple-500" />
-                  ) : (
-                    <XCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                  )}
+            {result.facturas.map((fac, idx) => {
+              const tieneAdvertencias = fac.advertencias && fac.advertencias.length > 0;
+              const tieneFecha = fac.fecha && !fac._fechaDudosa;
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-sm text-stone-900">{fac.numero || "(sin número)"}</span>
-                      {fac.tipo && <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-stone-100">{fac.tipo}</Badge>}
-                      <span className="text-xs text-stone-400">{fac.hoja}</span>
+              return (
+                <div key={idx} className={`rounded-lg border p-3 transition-colors ${
+                  !fac.exito ? "border-rose-200 bg-rose-50/50 opacity-70" :
+                  fac._fechaDudosa ? "border-rose-200 bg-rose-50/30" :
+                  tieneAdvertencias ? "border-amber-200 bg-amber-50/30" :
+                  selected.has(idx) ? "border-purple-300 bg-purple-50/50" :
+                  "border-stone-200 bg-white hover:bg-stone-50"
+                }`}>
+                  <div className="flex items-center gap-3">
+                    {fac.exito ? (
+                      <input type="checkbox" checked={selected.has(idx)} onChange={() => toggleSelect(idx)} className="w-4 h-4 rounded border-stone-300 text-purple-700 focus:ring-purple-500" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
+                    )}
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm text-stone-900">{fac.numero || "(sin número)"}</span>
+                        {fac.tipo && <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-stone-100">{fac.tipo}</Badge>}
+                        {/* Indicadores de calidad de datos */}
+                        {fac._numeroDeHoja && <Badge className="text-xs px-1.5 py-0 bg-amber-100 text-amber-700 border-amber-200">N° dudoso</Badge>}
+                        {!tieneFecha && fac.exito && <Badge className="text-xs px-1.5 py-0 bg-rose-100 text-rose-700 border-rose-200">Sin fecha</Badge>}
+                        {tieneAdvertencias && <Badge className="text-xs px-1.5 py-0 bg-amber-100 text-amber-700 border-amber-200">{fac.advertencias!.length} aviso(s)</Badge>}
+                        <span className="text-xs text-stone-400">{fac.hoja}</span>
+                      </div>
+                      <p className="text-xs text-stone-600 mt-0.5">
+                        {formatDate(fac.fecha)} | {fac.proveedor || "(sin cliente)"} | {fac.productos.length} prod. | {fac.productos.reduce((s, p) => s + p.cantidad, 0)} uds. | <span className="font-semibold">{formatMoney(fac.total)}</span>
+                      </p>
                     </div>
-                    <p className="text-xs text-stone-600 mt-0.5">
-                      {formatDate(fac.fecha)} | {fac.productos.length} prod. | {fac.productos.reduce((s, p) => s + p.cantidad, 0)} uds. | <span className="font-semibold">{formatMoney(fac.total)}</span>
-                    </p>
+
+                    <div className="flex items-center gap-2">
+                      {fac.exito ? <CheckCircle2 className="w-5 h-5 text-purple-700" /> : <AlertTriangle className="w-5 h-5 text-amber-500" />}
+                      <button onClick={() => toggleExpand(idx)} className="p-1 hover:bg-stone-200 rounded cursor-pointer">
+                        {expanded.has(idx) ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    {fac.exito ? <CheckCircle2 className="w-5 h-5 text-purple-700" /> : <AlertTriangle className="w-5 h-5 text-amber-500" />}
-                    <button onClick={() => toggleExpand(idx)} className="p-1 hover:bg-stone-200 rounded cursor-pointer">
-                      {expanded.has(idx) ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
-                    </button>
-                  </div>
-                </div>
+                  {expanded.has(idx) && (
+                    <div className="mt-3 pt-3 border-t border-stone-200 space-y-2">
+                      {/* Origen del dato */}
+                      <div className="flex items-center gap-2 text-xs text-stone-500">
+                        <FileSpreadsheet className="w-3.5 h-3.5" />
+                        <span>Archivo: <strong>{fac.archivoOrigen || "desconocido"}</strong> | Hoja: <strong>{fac.hoja}</strong></span>
+                      </div>
 
-                {expanded.has(idx) && (
-                  <div className="mt-3 pt-3 border-t border-stone-200 space-y-2">
-                    {fac.productos.length > 0 && (
-                      <div>
-                        <p className="text-xs font-semibold text-stone-500 uppercase mb-1">Productos</p>
-                        <div className="space-y-0.5">
-                          {fac.productos.map((p, pi) => (
-                            <p key={pi} className="text-xs text-stone-600">
-                              <span className="text-stone-400">{p.cantidad}x</span>{" "}
-                              {p.codigo && <span className="text-stone-400">[{p.codigo}] </span>}
-                              {p.producto}{" "}
-                              <span className="text-stone-400">- {formatMoney(p.subtotal)}</span>
-                            </p>
-                          ))}
+                      {/* Advertencias */}
+                      {tieneAdvertencias && (
+                        <div className="p-2 rounded bg-amber-50 border border-amber-100">
+                          <p className="text-xs font-semibold text-amber-600 uppercase mb-1 flex items-center gap-1">
+                            <FileWarning className="w-3.5 h-3.5" /> Advertencias
+                          </p>
+                          <ul className="space-y-0.5">
+                            {fac.advertencias!.map((w, wi) => <li key={wi} className="text-xs text-amber-700">- {w}</li>)}
+                          </ul>
                         </div>
-                      </div>
-                    )}
-                    {fac.errores.length > 0 && (
-                      <div>
-                        <p className="text-xs font-semibold text-amber-600 uppercase mb-1">Advertencias</p>
-                        <ul className="space-y-0.5">{fac.errores.map((err, ei) => <li key={ei} className="text-xs text-amber-700">- {err}</li>)}</ul>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
+                      )}
+
+                      {/* Productos */}
+                      {fac.productos.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-stone-500 uppercase mb-1">Productos</p>
+                          <div className="space-y-0.5">
+                            {fac.productos.map((p, pi) => (
+                              <p key={pi} className="text-xs text-stone-600">
+                                <span className="text-stone-400">{p.cantidad}x</span>{" "}
+                                {p.codigo && <span className="text-stone-400">[{p.codigo}] </span>}
+                                {p.producto}{" "}
+                                <span className="text-stone-400">- {formatMoney(p.subtotal)}</span>
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Errores */}
+                      {fac.errores.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-rose-600 uppercase mb-1">Errores</p>
+                          <ul className="space-y-0.5">{fac.errores.map((err, ei) => <li key={ei} className="text-xs text-rose-700">- {err}</li>)}</ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </CardContent>
       </Card>
 
-      {/* Botón confirmar con seguridad */}
+      {/* Botón confirmar */}
       <Card className="border-2 border-purple-200 bg-purple-50/50">
         <CardContent className="p-5">
           <div className="flex items-start gap-3 mb-4">
             <ShieldCheck className="w-6 h-6 text-purple-700 flex-shrink-0 mt-0.5" />
             <div>
               <h3 className="font-semibold text-stone-900">Modo confirmación</h3>
-              <p className="text-sm text-stone-600">Revisá que los datos sean correctos. Las facturas duplicadas se omiten automáticamente. Esta acción no se puede deshacer.</p>
+              <p className="text-sm text-stone-600">Los datos se guardan exactamente como están en el Excel. No se inventa nada. Facturas sin fecha se rechazan automáticamente. Las advertencias quedan registradas en la hoja de Trazabilidad del Excel exportado.</p>
             </div>
           </div>
           <div className="flex gap-3">

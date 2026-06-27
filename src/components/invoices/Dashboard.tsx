@@ -33,6 +33,8 @@ interface Stats {
     fechaEmision: string;
     proveedor: string;
     total: number;
+    hojaOrigen: string;
+    advertencias: string;
     items: { producto: string; cantidad: number }[];
   }[];
 }
@@ -77,17 +79,7 @@ function QuickAction({ title, description, tab, icon, needsProject }: {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement("a"); a.href = url; a.download = "BaseDeDatos.xlsx";
         document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
-        toast({ title: "Excel descargado", description: "BaseDeDatos.xlsx" });
-      }).catch(() => { toast({ title: "Error al exportar", variant: "destructive" }); });
-      return;
-    }
-    if (tab === "export-original") {
-      const params = activeProjectId ? `?projectId=${activeProjectId}` : "";
-      fetch(`/api/invoices/export?format=original${params.replace("?", "&")}`).then((r) => { if (!r.ok) throw new Error(); return r.blob(); }).then((blob) => {
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a"); a.href = url; a.download = "Facturas_Original.xlsx";
-        document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
-        toast({ title: "Excel descargado", description: "Facturas_Original.xlsx" });
+        toast({ title: "Excel descargado", description: "BaseDeDatos.xlsx con Trazabilidad" });
       }).catch(() => { toast({ title: "Error al exportar", variant: "destructive" }); });
       return;
     }
@@ -162,7 +154,7 @@ export function Dashboard() {
                 : "Creá un proyecto desde el menú de arriba para empezar a registrar facturas."
               }
             </p>
-            <p className="text-xs text-stone-400">Los datos se guardan localmente en esta computadora.</p>
+            <p className="text-xs text-stone-400">Los datos se guardan localmente en esta computadora. No se inventa ningún dato.</p>
           </CardContent>
         </Card>
       ) : (
@@ -179,7 +171,7 @@ export function Dashboard() {
                     <div className="w-9 h-9 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0"><FileText className="w-4 h-4 text-purple-800" /></div>
                     <div className="min-w-0">
                       <p className="font-medium text-sm text-stone-900 truncate">{inv.numero}</p>
-                      <p className="text-xs text-stone-500 truncate">{inv.items.length} prod. | {inv.items.reduce((s, i) => s + i.cantidad, 0)} uds.</p>
+                      <p className="text-xs text-stone-500 truncate">{inv.proveedor || "(sin cliente)"} | {inv.items.length} prod. | {inv.items.reduce((s, i) => s + i.cantidad, 0)} uds.</p>
                     </div>
                   </div>
                   <div className="text-right flex-shrink-0 ml-3">
@@ -197,7 +189,7 @@ export function Dashboard() {
         <QuickAction title="Importar facturas" description="Subí el archivo Excel con todas las hojas" tab="importar" icon={<Upload className="w-5 h-5" />} needsProject />
         <QuickAction title="Crear factura" description="Ingresá una factura manualmente" tab="crear" icon={<Plus className="w-5 h-5" />} needsProject />
         <QuickAction title="Buscar facturas" description="Buscá por número, producto o fecha" tab="consultar" icon={<Search className="w-5 h-5" />} needsProject />
-        <QuickAction title="Base de Datos" description="Exportá la base de datos en Excel" tab="export" icon={<Download className="w-5 h-5" />} />
+        <QuickAction title="Base de Datos" description="Exportá Excel con Trazabilidad" tab="export" icon={<Download className="w-5 h-5" />} />
       </div>
     </div>
   );

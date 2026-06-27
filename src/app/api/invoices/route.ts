@@ -1,6 +1,17 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 
+/**
+ * safeN — Convierte un valor a número seguro para Prisma.
+ * NUNCA devuelve NaN ni Infinity (Prisma los rechaza).
+ */
+function safeN(v: unknown): number {
+  if (v === undefined || v === null) return 0;
+  const n = typeof v === "number" ? v : parseFloat(String(v));
+  if (isNaN(n) || !isFinite(n)) return 0;
+  return n;
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -13,31 +24,66 @@ export async function POST(request: Request) {
       );
     }
 
-    // Calcular el total sumando los subtotales
-    let total = 0;
-    for (const item of items) {
-      const cantidad = parseFloat(item.cantidad) || 0;
-      const valorUnit = parseFloat(item.valorUnit) || 0;
-      item.subtotal = cantidad * valorUnit;
-      total += item.subtotal;
+    // Validar fecha
+    const fecha = new Date(fechaEmision);
+    if (isNaN(fecha.getTime())) {
+      return NextResponse.json(
+        { error: "La fecha no es válida." },
+        { status: 400 }
+      );
     }
+    if (fecha.getFullYear() < 1990 || fecha.getFullYear() > 2030) {
+      return NextResponse.json(
+        { error: "La fecha está fuera de un rango razonable." },
+        { status: 400 }
+      );
+    }
+
+    // Validar items
+    const itemsValidos = [];
+    let total = 0;
+
+    for (const item of items) {
+      const producto = String(item.producto || "").trim();
+      if (!producto) continue; // Ignorar items sin descripción
+
+      const cantidad = safeN(item.cantidad);
+      const valorUnit = safeN(item.valorUnit);
+      const subtotal = Math.round(cantidad * valorUnit * 100) / 100;
+      total += subtotal;
+
+      itemsValidos.push({
+        codigo: String(item.codigo || "").trim(),
+        producto,
+        cantidad,
+        valorUnit,
+        subtotal,
+      });
+    }
+
+    if (itemsValidos.length === 0) {
+      return NextResponse.json(
+        { error: "Ningún producto tiene descripción válida." },
+        { status: 400 }
+      );
+    }
+
+    total = Math.round(total * 100) / 100;
 
     const invoice = await db.invoice.create({
       data: {
         projectId,
         numero: numero.trim(),
         tipo: (tipo || "").trim(),
-        fechaEmision: new Date(fechaEmision),
+        fechaEmision: fecha,
         proveedor: (proveedor || "").trim(),
         total,
+        // Creación manual: sin trazabilidad de archivo
+        hojaOrigen: "creación manual",
+        archivoOrigen: "",
+        advertencias: "",
         items: {
-          create: items.map((item: Record<string, string | number>) => ({
-            codigo: String(item.codigo || "").trim(),
-            producto: String(item.producto || "").trim(),
-            cantidad: parseFloat(String(item.cantidad)) || 0,
-            valorUnit: parseFloat(String(item.valorUnit)) || 0,
-            subtotal: parseFloat(String(item.subtotal)) || 0,
-          })),
+          create: itemsValidos,
         },
       },
       include: { items: true },
@@ -59,7 +105,6 @@ export async function GET(request: Request) {
     const busqueda = searchParams.get("busqueda") || "";
     const desde = searchParams.get("desde") || "";
     const hasta = searchParams.get("hasta") || "";
-    const proveedor = searchParams.get("proveedor") || "";
     const projectId = searchParams.get("projectId") || "";
     const pagina = parseInt(searchParams.get("pagina") || "1");
     const porPagina = parseInt(searchParams.get("porPagina") || "20");
@@ -76,10 +121,6 @@ export async function GET(request: Request) {
         { proveedor: { contains: busqueda } },
         { items: { some: { producto: { contains: busqueda } } } },
       ];
-    }
-
-    if (proveedor) {
-      where.proveedor = { contains: proveedor };
     }
 
     if (desde || hasta) {
