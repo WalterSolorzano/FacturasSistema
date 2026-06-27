@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 import {
   FileText,
   Users,
@@ -89,17 +90,45 @@ function QuickAction({
   description,
   tab,
   icon,
+  loading,
 }: {
   title: string;
   description: string;
   tab: string;
   icon: React.ReactNode;
+  loading?: boolean;
 }) {
   const { setActiveTab } = useAppStore();
+  const { toast } = useToast();
 
   const handleClick = () => {
     if (tab === "export") {
-      window.open("/api/invoices/export", "_blank");
+      fetch("/api/invoices/export")
+        .then((r) => {
+          if (!r.ok) throw new Error();
+          return r.blob();
+        })
+        .then((blob) => {
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "BaseDeDatos_Facturas.xlsx";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(url);
+          toast({
+            title: "Excel descargado",
+            description: "El archivo BaseDeDatos_Facturas.xlsx se guardó en tu computadora.",
+          });
+        })
+        .catch(() => {
+          toast({
+            title: "Error al exportar",
+            description: "No se pudo generar el archivo Excel.",
+            variant: "destructive",
+          });
+        });
       return;
     }
     setActiveTab(tab as Tab);
@@ -291,7 +320,7 @@ export function Dashboard() {
         />
         <QuickAction
           title="Exportar a Excel"
-          description="Descargá toda la base de datos en formato Excel"
+          description="Descargá toda la base de datos en formato Excel con resumen incluido"
           tab="export"
           icon={<Download className="w-5 h-5" />}
         />

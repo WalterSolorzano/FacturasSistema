@@ -85,9 +85,9 @@ export function InvoiceList() {
   const [hasta, setHasta] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
-  // Eliminar
   const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
@@ -131,6 +131,35 @@ export function InvoiceList() {
     setPagina(1);
   };
 
+  const exportarExcel = async () => {
+    setExporting(true);
+    try {
+      const res = await fetch("/api/invoices/export");
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "BaseDeDatos_Facturas.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast({
+        title: "Excel descargado",
+        description: "BaseDeDatos_Facturas.xlsx se guardó en tu computadora.",
+      });
+    } catch {
+      toast({
+        title: "Error",
+        description: "No se pudo generar el Excel.",
+        variant: "destructive",
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const eliminarFactura = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -170,11 +199,12 @@ export function InvoiceList() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => window.open("/api/invoices/export", "_blank")}
+          onClick={exportarExcel}
+          disabled={exporting}
           className="gap-2 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
         >
-          <Download className="w-4 h-4" />
-          <span className="hidden sm:inline">Exportar Excel</span>
+          <Download className={`w-4 h-4 ${exporting ? "animate-pulse" : ""}`} />
+          <span className="hidden sm:inline">{exporting ? "Descargando..." : "Exportar Excel"}</span>
         </Button>
       </div>
 
