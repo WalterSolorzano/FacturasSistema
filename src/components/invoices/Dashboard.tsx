@@ -9,7 +9,7 @@ import {
   Package,
   TrendingUp,
   ArrowUpRight,
-  PlusCircle,
+  Upload,
   Search,
   Download,
 } from "lucide-react";
@@ -307,10 +307,10 @@ export function Dashboard() {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <QuickAction
-          title="Registrar factura"
-          description="Cargá los datos de una nueva factura al sistema"
-          tab="nueva"
-          icon={<PlusCircle className="w-5 h-5" />}
+          title="Importar facturas"
+          description="Subí el archivo Excel con todas las hojas de factura"
+          tab="importar"
+          icon={<Upload className="w-5 h-5" />}
         />
         <QuickAction
           title="Buscar facturas"

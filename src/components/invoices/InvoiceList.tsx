@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
+  FileDown,
   X,
   Filter,
 } from "lucide-react";
@@ -88,6 +89,7 @@ export function InvoiceList() {
   const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportandoEstandar, setExportandoEstandar] = useState<string | null>(null);
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
@@ -157,6 +159,31 @@ export function InvoiceList() {
       });
     } finally {
       setExporting(false);
+    }
+  };
+
+  const exportarEstandar = async (invId: string) => {
+    setExportandoEstandar(invId);
+    try {
+      const res = await fetch(`/api/invoices/${invId}/estandar`);
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "Factura_Estandar.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      toast({
+        title: "Error",
+        description: "No se pudo generar la factura.",
+        variant: "destructive",
+      });
+    } finally {
+      setExportandoEstandar(null);
     }
   };
 
@@ -355,17 +382,31 @@ export function InvoiceList() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                  <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                     <p className="font-bold text-lg text-stone-900">
                       {formatMoney(inv.total)}
                     </p>
-                    <button
-                      onClick={() => setDeleteTarget(inv)}
-                      className="text-stone-400 hover:text-rose-600 transition-colors p-1 cursor-pointer"
-                      title="Eliminar factura"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => exportarEstandar(inv.id)}
+                        disabled={exportandoEstandar === inv.id}
+                        className="text-stone-400 hover:text-emerald-600 transition-colors p-1 cursor-pointer"
+                        title="Descargar factura estandarizada"
+                      >
+                        {exportandoEstandar === inv.id ? (
+                          <Download className="w-4 h-4 animate-pulse" />
+                        ) : (
+                          <FileDown className="w-4 h-4" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => setDeleteTarget(inv)}
+                        className="text-stone-400 hover:text-rose-600 transition-colors p-1 cursor-pointer"
+                        title="Eliminar factura"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </CardContent>
