@@ -7,26 +7,36 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Project {
+  id        String    @id @default(cuid())
+  nombre    String                      // Nombre del proyecto/archivo
+  createdAt DateTime  @default(now())
+
+  invoices  Invoice[]
+}
+
 model Invoice {
   id           String   @id @default(cuid())
-  numero       String                // N° de factura (ej: "FC 000-0008805")
-  tipo         String   @default("") // FC, FA, FB, etc.
-  fechaEmision DateTime              // Fecha de la factura
-  proveedor    String   @default("") // Razón social / nombre del negocio
-  total        Float                 // Total general de la factura
+  projectId    String                     // A qué proyecto pertenece
+  numero       String                     // N° de factura (ej: "FC 000-0008805")
+  tipo         String   @default("")     // FC, FA, FB, etc.
+  fechaEmision DateTime                   // Fecha de la factura
+  proveedor    String   @default("")     // Razón social / nombre del negocio
+  total        Float                      // Total general de la factura
   createdAt    DateTime @default(now())
 
-  items InvoiceItem[]
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items        InvoiceItem[]
 }
 
 model InvoiceItem {
   id         String  @id @default(cuid())
   invoiceId  String
-  codigo     String  @default("")   // Código del producto (ej: "S-0100")
-  producto   String                  // Descripción del producto
-  cantidad   Float                   // Cantidad
-  valorUnit  Float                   // Precio unitario
-  subtotal   Float                   // cantidad * valorUnit
+  codigo     String  @default("")       // Código del producto (ej: "S-0100")
+  producto   String                      // Descripción del producto
+  cantidad   Float                       // Cantidad
+  valorUnit  Float                       // Precio unitario
+  subtotal   Float                       // cantidad * valorUnit
 
   invoice    Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 }

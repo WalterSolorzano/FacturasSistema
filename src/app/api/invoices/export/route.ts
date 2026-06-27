@@ -32,8 +32,15 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const format = searchParams.get("format") || "basedatos";
+    const projectId = searchParams.get("projectId");
+
+    const where: Record<string, unknown> = {};
+    if (projectId) {
+      where.projectId = projectId;
+    }
 
     const invoices = await db.invoice.findMany({
+      where,
       include: { items: true },
       orderBy: { fechaEmision: "desc" },
     });

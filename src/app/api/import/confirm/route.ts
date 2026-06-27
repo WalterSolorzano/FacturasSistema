@@ -2,7 +2,6 @@ import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import type { FacturaExtraida } from "@/lib/extractor";
 
-// Sanitiza un valor numérico: NaN/null/undefined/Infinity → 0
 function safeN(v: unknown): number {
   if (v === undefined || v === null) return 0;
   const n = typeof v === "number" ? v : parseFloat(String(v));
@@ -13,7 +12,14 @@ function safeN(v: unknown): number {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { facturas }: { facturas: FacturaExtraida[] } = body;
+    const { facturas, projectId }: { facturas: FacturaExtraida[]; projectId: string } = body;
+
+    if (!projectId) {
+      return NextResponse.json(
+        { error: "No se especificó el proyecto." },
+        { status: 400 }
+      );
+    }
 
     if (!facturas || facturas.length === 0) {
       return NextResponse.json(
@@ -31,15 +37,24 @@ export async function POST(request: Request) {
       );
     }
 
+    // Verificar que el proyecto existe
+    const project = await db.project.findUnique({ where: { id: projectId } });
+    if (!project) {
+      return NextResponse.json(
+        { error: "El proyecto no existe." },
+        { status: 400 }
+      );
+    }
+
     let importadas = 0;
     let duplicadas = 0;
     let erroresDetalle: string[] = [];
 
     for (const fac of exitosas) {
       try {
-        // Verificar si ya existe por número
+        // Verificar si ya existe por número dentro del proyecto
         const existente = await db.invoice.findFirst({
-          where: { numero: fac.numero },
+          where: { numero: fac.numero, projectId },
         });
 
         if (existente) {
@@ -47,13 +62,11 @@ export async function POST(request: Request) {
           continue;
         }
 
-        // Validaciones de seguridad
         if (!fac.productos || fac.productos.length === 0) {
           erroresDetalle.push(`${fac.numero}: sin productos`);
           continue;
         }
 
-        // Sanitizar fecha
         let fechaEmision: Date;
         if (fac.fecha) {
           const d = new Date(fac.fecha);
@@ -62,11 +75,11 @@ export async function POST(request: Request) {
           fechaEmision = new Date();
         }
 
-        // Sanitizar total de la factura
         const total = safeN(fac.total);
 
         await db.invoice.create({
           data: {
+            projectId,
             numero: String(fac.numero || "").trim(),
             tipo: String(fac.tipo || "").trim(),
             fechaEmision,

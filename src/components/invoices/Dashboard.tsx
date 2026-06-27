@@ -12,6 +12,7 @@ import {
   Search,
   Download,
   Hash,
+  Plus,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -63,15 +64,16 @@ function StatCard({ icon, label, value, subtitle, color }: {
   );
 }
 
-function QuickAction({ title, description, tab, icon }: {
-  title: string; description: string; tab: string; icon: React.ReactNode;
+function QuickAction({ title, description, tab, icon, needsProject }: {
+  title: string; description: string; tab: string; icon: React.ReactNode; needsProject?: boolean;
 }) {
-  const { setActiveTab } = useAppStore();
+  const { setActiveTab, activeProjectId } = useAppStore();
   const { toast } = useToast();
 
   const handleClick = () => {
     if (tab === "export") {
-      fetch("/api/invoices/export?format=basedatos").then((r) => { if (!r.ok) throw new Error(); return r.blob(); }).then((blob) => {
+      const params = activeProjectId ? `?projectId=${activeProjectId}` : "";
+      fetch(`/api/invoices/export${params}`).then((r) => { if (!r.ok) throw new Error(); return r.blob(); }).then((blob) => {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement("a"); a.href = url; a.download = "BaseDeDatos.xlsx";
         document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
@@ -80,7 +82,8 @@ function QuickAction({ title, description, tab, icon }: {
       return;
     }
     if (tab === "export-original") {
-      fetch("/api/invoices/export?format=original").then((r) => { if (!r.ok) throw new Error(); return r.blob(); }).then((blob) => {
+      const params = activeProjectId ? `?projectId=${activeProjectId}` : "";
+      fetch(`/api/invoices/export?format=original${params.replace("?", "&")}`).then((r) => { if (!r.ok) throw new Error(); return r.blob(); }).then((blob) => {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement("a"); a.href = url; a.download = "Facturas_Original.xlsx";
         document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
@@ -104,18 +107,19 @@ function QuickAction({ title, description, tab, icon }: {
 }
 
 export function Dashboard() {
-  const { refreshKey } = useAppStore();
+  const { refreshKey, activeProjectId, projects } = useAppStore();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/stats").then((r) => {
+    const params = activeProjectId ? `?projectId=${activeProjectId}` : "";
+    fetch(`/api/stats${params}`).then((r) => {
       if (!r.ok) throw new Error("Stats failed");
       return r.json();
     }).then((data) => { if (!cancelled) { setStats(data); setLoading(false); } }).catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [refreshKey]);
+  }, [refreshKey, activeProjectId]);
 
   if (loading || !stats) {
     return (
@@ -127,12 +131,15 @@ export function Dashboard() {
   }
 
   const tieneDatos = stats.totalFacturas > 0;
+  const activeProject = projects.find((p) => p.id === activeProjectId);
 
   return (
     <div className="space-y-6 animate-in fade-in">
       <div>
         <h2 className="text-xl font-bold text-stone-900">Panel de control</h2>
-        <p className="text-sm text-stone-500 mt-0.5">Resumen general de facturación</p>
+        <p className="text-sm text-stone-500 mt-0.5">
+          {activeProject ? `Proyecto: ${activeProject.nombre}` : "Todos los proyectos"}
+        </p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -146,8 +153,15 @@ export function Dashboard() {
         <Card className="border-0 shadow-sm">
           <CardContent className="p-10 text-center">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-purple-100 flex items-center justify-center"><TrendingUp className="w-8 h-8 text-purple-700" /></div>
-            <h3 className="text-lg font-semibold text-stone-900 mb-2">Bienvenido al sistema</h3>
-            <p className="text-stone-500 max-w-md mx-auto mb-4">Aún no hay facturas registradas. Importá tu archivo Excel con la pestaña <strong>&quot;Importar&quot;</strong> para cargar todas las facturas.</p>
+            <h3 className="text-lg font-semibold text-stone-900 mb-2">
+              {activeProject ? "Sin facturas en este proyecto" : "Bienvenido al sistema"}
+            </h3>
+            <p className="text-stone-500 max-w-md mx-auto mb-4">
+              {activeProject
+                ? "Importá tu archivo Excel o creá facturas manualmente."
+                : "Creá un proyecto desde el menú de arriba para empezar a registrar facturas."
+              }
+            </p>
             <p className="text-xs text-stone-400">Los datos se guardan localmente en esta computadora.</p>
           </CardContent>
         </Card>
@@ -180,10 +194,10 @@ export function Dashboard() {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <QuickAction title="Importar facturas" description="Subí el archivo Excel con todas las hojas" tab="importar" icon={<Upload className="w-5 h-5" />} />
-        <QuickAction title="Buscar facturas" description="Buscá por número, producto o fecha" tab="consultar" icon={<Search className="w-5 h-5" />} />
+        <QuickAction title="Importar facturas" description="Subí el archivo Excel con todas las hojas" tab="importar" icon={<Upload className="w-5 h-5" />} needsProject />
+        <QuickAction title="Crear factura" description="Ingresá una factura manualmente" tab="crear" icon={<Plus className="w-5 h-5" />} needsProject />
+        <QuickAction title="Buscar facturas" description="Buscá por número, producto o fecha" tab="consultar" icon={<Search className="w-5 h-5" />} needsProject />
         <QuickAction title="Base de Datos" description="Exportá la base de datos en Excel" tab="export" icon={<Download className="w-5 h-5" />} />
-        <QuickAction title="Formato Original" description="Exportá cada factura como hoja (formato original)" tab="export-original" icon={<Download className="w-5 h-5" />} />
       </div>
     </div>
   );
