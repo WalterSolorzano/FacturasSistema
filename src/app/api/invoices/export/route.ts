@@ -53,11 +53,11 @@ export async function GET(request: Request) {
 }
 
 // ============================================================
-// FORMATO ORIGINAL: cada factura en una hoja (como CUCIMUNDO)
+// FORMATO ORIGINAL: cada factura en una hoja
 // ============================================================
 async function exportarFormatoOriginal(invoices: any[]) {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Sistema CUCIMUNDO";
+  workbook.creator = "Sistema de Facturas";
   workbook.created = new Date();
 
   const borders: Partial<ExcelJS.Borders> = {
@@ -178,7 +178,7 @@ async function exportarFormatoOriginal(invoices: any[]) {
 
   bd.mergeCells("A1:I1");
   const titulo = bd.getCell("A1");
-  titulo.value = "BASE DE DATOS - FACTURAS CUCIMUNDO";
+  titulo.value = "BASE DE DATOS - FACTURAS";
   titulo.font = { bold: true, size: 14, color: { argb: BLANCO }, name: "Calibri" };
   titulo.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MORADO } };
   titulo.alignment = { horizontal: "center", vertical: "middle" };
@@ -224,7 +224,7 @@ async function exportarFormatoOriginal(invoices: any[]) {
   return new NextResponse(Buffer.from(await workbook.xlsx.writeBuffer()), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": 'attachment; filename="CUCIMUNDO_Facturas_Original.xlsx"',
+        "Content-Disposition": 'attachment; filename="Facturas_Original.xlsx"',
       },
     });
 }
@@ -235,7 +235,7 @@ async function exportarFormatoOriginal(invoices: any[]) {
 async function exportarBaseDeDatos(invoices: any[]) {
 
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = "Sistema de Registro de Facturas - CUCIMUNDO";
+    workbook.creator = "Sistema de Facturas";
     workbook.created = new Date();
 
     // ============================================================
@@ -248,7 +248,7 @@ async function exportarBaseDeDatos(invoices: any[]) {
     // Título
     bd.mergeCells("A1:I1");
     const titulo = bd.getCell("A1");
-    titulo.value = "BASE DE DATOS - FACTURAS CUCIMUNDO";
+    titulo.value = "BASE DE DATOS - FACTURAS";
     titulo.font = { bold: true, size: 16, color: { argb: BLANCO }, name: "Calibri" };
     titulo.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MORADO } };
     titulo.alignment = { horizontal: "center", vertical: "middle" };
@@ -592,7 +592,7 @@ async function exportarBaseDeDatos(invoices: any[]) {
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": 'attachment; filename="BaseDeDatos_CUCIMUNDO.xlsx"',
+        "Content-Disposition": 'attachment; filename="BaseDeDatos.xlsx"',
       },
     });
 }

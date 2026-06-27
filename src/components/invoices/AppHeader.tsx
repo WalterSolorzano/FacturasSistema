@@ -21,8 +21,8 @@ export function AppHeader() {
               <FileText className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-stone-900 leading-tight">CUCIMUNDO</h1>
-              <p className="text-xs text-stone-500 leading-tight hidden sm:block">Registro de Facturas</p>
+              <h1 className="text-lg font-bold text-stone-900 leading-tight">Facturas</h1>
+              <p className="text-xs text-stone-500 leading-tight hidden sm:block">Registro y consulta</p>
             </div>
           </div>
           <nav className="flex gap-1">

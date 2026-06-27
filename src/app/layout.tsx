@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Registro de Facturas",
-  description: "Sistema sencillo para registrar y consultar facturas",
+  title: "Facturas",
+  description: "Registro y consulta de facturas",
 };
 
 export default function RootLayout({

@@ -41,11 +41,20 @@ function getStr(hoja: XLSX.WorkSheet, fila: number, col: number): string {
   return String(c.v).trim();
 }
 
+function safeNum(v: unknown): number {
+  if (v === undefined || v === null) return 0;
+  if (typeof v === "number") {
+    if (isNaN(v) || !isFinite(v)) return 0;
+    return v;
+  }
+  const n = parseFloat(String(v));
+  return isNaN(n) || !isFinite(n) ? 0 : n;
+}
+
 function getNum(hoja: XLSX.WorkSheet, fila: number, col: number): number {
   const c = getCelda(hoja, fila, col);
-  if (!c || c.v === undefined || c.v === null) return 0;
-  const n = typeof c.v === "number" ? c.v : parseFloat(String(c.v));
-  return isNaN(n) ? 0 : n;
+  if (!c) return 0;
+  return safeNum(c.v);
 }
 
 // ============================================================
