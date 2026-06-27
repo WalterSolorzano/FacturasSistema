@@ -71,11 +71,20 @@ function QuickAction({ title, description, tab, icon }: {
 
   const handleClick = () => {
     if (tab === "export") {
-      fetch("/api/invoices/export").then((r) => { if (!r.ok) throw new Error(); return r.blob(); }).then((blob) => {
+      fetch("/api/invoices/export?format=basedatos").then((r) => { if (!r.ok) throw new Error(); return r.blob(); }).then((blob) => {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement("a"); a.href = url; a.download = "BaseDeDatos_CUCIMUNDO.xlsx";
         document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
-        toast({ title: "Excel descargado", description: "BaseDeDatos_CUCIMUNDO.xlsx se guardó." });
+        toast({ title: "Excel descargado", description: "BaseDeDatos_CUCIMUNDO.xlsx" });
+      }).catch(() => { toast({ title: "Error al exportar", variant: "destructive" }); });
+      return;
+    }
+    if (tab === "export-original") {
+      fetch("/api/invoices/export?format=original").then((r) => { if (!r.ok) throw new Error(); return r.blob(); }).then((blob) => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a"); a.href = url; a.download = "CUCIMUNDO_Facturas_Original.xlsx";
+        document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
+        toast({ title: "Excel descargado", description: "CUCIMUNDO_Facturas_Original.xlsx" });
       }).catch(() => { toast({ title: "Error al exportar", variant: "destructive" }); });
       return;
     }
@@ -83,11 +92,11 @@ function QuickAction({ title, description, tab, icon }: {
   };
 
   return (
-    <button onClick={handleClick} className="text-left p-5 rounded-xl border border-stone-200 bg-white hover:border-emerald-300 hover:shadow-md transition-all cursor-pointer group">
+    <button onClick={handleClick} className="text-left p-5 rounded-xl border border-stone-200 bg-white hover:border-purple-300 hover:shadow-md transition-all cursor-pointer group">
       <div className="flex items-center gap-3 mb-2">
-        <div className="w-9 h-9 rounded-lg bg-stone-100 group-hover:bg-emerald-100 flex items-center justify-center text-stone-500 group-hover:text-emerald-700 transition-colors">{icon}</div>
+        <div className="w-9 h-9 rounded-lg bg-stone-100 group-hover:bg-purple-100 flex items-center justify-center text-stone-500 group-hover:text-purple-800 transition-colors">{icon}</div>
         <p className="font-medium text-sm text-stone-900 flex-1">{title}</p>
-        <ArrowUpRight className="w-4 h-4 text-stone-300 group-hover:text-emerald-600 transition-colors" />
+        <ArrowUpRight className="w-4 h-4 text-stone-300 group-hover:text-purple-700 transition-colors" />
       </div>
       <p className="text-xs text-stone-500 leading-relaxed">{description}</p>
     </button>
@@ -127,7 +136,7 @@ export function Dashboard() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<FileText className="w-5 h-5 text-white" />} label="Facturas registradas" value={stats.totalFacturas.toLocaleString("es-AR")} subtitle={`${stats.facturasMes} este mes`} color="bg-emerald-600" />
+        <StatCard icon={<FileText className="w-5 h-5 text-white" />} label="Facturas registradas" value={stats.totalFacturas.toLocaleString("es-AR")} subtitle={`${stats.facturasMes} este mes`} color="bg-purple-800" />
         <StatCard icon={<DollarSign className="w-5 h-5 text-white" />} label="Total facturado" value={formatMoney(stats.totalFacturado)} subtitle={stats.totalMes > 0 ? `${formatMoney(stats.totalMes)} este mes` : "Acumulado total"} color="bg-amber-500" />
         <StatCard icon={<Hash className="w-5 h-5 text-white" />} label="Unidades vendidas" value={stats.totalUnidades.toLocaleString("es-AR")} subtitle={`${stats.totalProductos} líneas de producto`} color="bg-teal-600" />
         <StatCard icon={<Package className="w-5 h-5 text-white" />} label="Ticket promedio" value={formatMoney(stats.totalFacturas > 0 ? stats.totalFacturado / stats.totalFacturas : 0)} subtitle="Promedio por factura" color="bg-rose-500" />
@@ -136,7 +145,7 @@ export function Dashboard() {
       {!tieneDatos ? (
         <Card className="border-0 shadow-sm">
           <CardContent className="p-10 text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-emerald-100 flex items-center justify-center"><TrendingUp className="w-8 h-8 text-emerald-600" /></div>
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-purple-100 flex items-center justify-center"><TrendingUp className="w-8 h-8 text-purple-700" /></div>
             <h3 className="text-lg font-semibold text-stone-900 mb-2">Bienvenido al sistema</h3>
             <p className="text-stone-500 max-w-md mx-auto mb-4">Aún no hay facturas registradas. Importá tu archivo Excel con la pestaña <strong>&quot;Importar&quot;</strong> para cargar todas las facturas.</p>
             <p className="text-xs text-stone-400">Los datos se guardan localmente en esta computadora.</p>
@@ -153,7 +162,7 @@ export function Dashboard() {
               {stats.ultimasFacturas.map((inv) => (
                 <div key={inv.id} className="flex items-center justify-between p-3 rounded-lg bg-stone-50 hover:bg-stone-100 transition-colors">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0"><FileText className="w-4 h-4 text-emerald-700" /></div>
+                    <div className="w-9 h-9 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0"><FileText className="w-4 h-4 text-purple-800" /></div>
                     <div className="min-w-0">
                       <p className="font-medium text-sm text-stone-900 truncate">{inv.numero}</p>
                       <p className="text-xs text-stone-500 truncate">{inv.items.length} prod. | {inv.items.reduce((s, i) => s + i.cantidad, 0)} uds.</p>
@@ -170,10 +179,11 @@ export function Dashboard() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <QuickAction title="Importar facturas" description="Subí el archivo Excel (.xlsx) con todas las hojas de factura" tab="importar" icon={<Upload className="w-5 h-5" />} />
-        <QuickAction title="Buscar facturas" description="Encontrá cualquier factura por número, producto o fecha" tab="consultar" icon={<Search className="w-5 h-5" />} />
-        <QuickAction title="Exportar Base de Datos" description="Descargá toda la base de datos en Excel profesional" tab="export" icon={<Download className="w-5 h-5" />} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <QuickAction title="Importar facturas" description="Subí el archivo Excel con todas las hojas" tab="importar" icon={<Upload className="w-5 h-5" />} />
+        <QuickAction title="Buscar facturas" description="Buscá por número, producto o fecha" tab="consultar" icon={<Search className="w-5 h-5" />} />
+        <QuickAction title="Base de Datos" description="Exportá la base de datos en Excel" tab="export" icon={<Download className="w-5 h-5" />} />
+        <QuickAction title="Formato Original" description="Exportá cada factura como hoja (formato CUCIMUNDO)" tab="export-original" icon={<Download className="w-5 h-5" />} />
       </div>
     </div>
   );

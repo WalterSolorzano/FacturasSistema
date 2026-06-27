@@ -17,7 +17,7 @@ export function AppHeader() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-purple-800 flex items-center justify-center">
               <FileText className="w-6 h-6 text-white" />
             </div>
             <div>
@@ -32,7 +32,7 @@ export function AppHeader() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer ${
                   activeTab === tab.id
-                    ? "bg-emerald-600 text-white shadow-md shadow-emerald-200"
+                    ? "bg-purple-800 text-white shadow-md shadow-purple-200"
                     : "text-stone-600 hover:bg-stone-100 hover:text-stone-900"
                 }`}
               >
