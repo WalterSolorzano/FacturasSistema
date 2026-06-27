@@ -101,7 +101,10 @@ export function Dashboard() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/stats").then((r) => r.json()).then((data) => { if (!cancelled) { setStats(data); setLoading(false); } }).catch(() => { if (!cancelled) setLoading(false); });
+    fetch("/api/stats").then((r) => {
+      if (!r.ok) throw new Error("Stats failed");
+      return r.json();
+    }).then((data) => { if (!cancelled) { setStats(data); setLoading(false); } }).catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [refreshKey]);
 
