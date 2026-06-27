@@ -9,10 +9,10 @@ datasource db {
 
 model Invoice {
   id           String   @id @default(cuid())
-  numero       String                // N° de factura (ej: "FC-0005", "0000-00000001")
-  tipo         String   @default("") // A, B, C, etc.
+  numero       String                // N° de factura (ej: "FC 000-0008805")
+  tipo         String   @default("") // FC, FA, FB, etc.
   fechaEmision DateTime              // Fecha de la factura
-  cliente      String                // Nombre/Razón Social del cliente
+  proveedor    String   @default("") // Razón social / nombre del negocio
   total        Float                 // Total general de la factura
   createdAt    DateTime @default(now())
 
@@ -22,10 +22,9 @@ model Invoice {
 model InvoiceItem {
   id         String  @id @default(cuid())
   invoiceId  String
-  codigo     String  @default("")   // Código del producto
-  producto   String                  // Descripción/nombre del producto
+  codigo     String  @default("")   // Código del producto (ej: "S-0100")
+  producto   String                  // Descripción del producto
   cantidad   Float                   // Cantidad
-  talla      String  @default("")   // Talla (si aplica)
   valorUnit  Float                   // Precio unitario
   subtotal   Float                   // cantidad * valorUnit
 

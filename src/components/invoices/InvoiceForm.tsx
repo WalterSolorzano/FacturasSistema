@@ -27,21 +27,13 @@ interface ItemRow {
   codigo: string;
   producto: string;
   cantidad: string;
-  talla: string;
   valorUnit: string;
 }
 
 let nextId = 1;
 
 function createEmptyItem(): ItemRow {
-  return {
-    id: nextId++,
-    codigo: "",
-    producto: "",
-    cantidad: "",
-    talla: "",
-    valorUnit: "",
-  };
+  return { id: nextId++, codigo: "", producto: "", cantidad: "", valorUnit: "" };
 }
 
 function formatMoney(value: number): string {
@@ -57,16 +49,10 @@ export function InvoiceForm() {
   const { toast } = useToast();
   const [sending, setSending] = useState(false);
 
-  // Datos generales de la factura
   const [numero, setNumero] = useState("");
-  const [tipo, setTipo] = useState("");
-  const [fecha, setFecha] = useState(() => {
-    const hoy = new Date();
-    return hoy.toISOString().split("T")[0];
-  });
-  const [cliente, setCliente] = useState("");
-
-  // Productos
+  const [tipo, setTipo] = useState("FC");
+  const [fecha, setFecha] = useState(() => new Date().toISOString().split("T")[0]);
+  const [proveedor, setProveedor] = useState("CUCIMUNDO");
   const [items, setItems] = useState<ItemRow[]>([createEmptyItem()]);
 
   const agregarFila = useCallback(() => {
@@ -74,51 +60,39 @@ export function InvoiceForm() {
   }, []);
 
   const quitarFila = useCallback((id: number) => {
-    setItems((prev) => {
-      if (prev.length <= 1) return prev;
-      return prev.filter((item) => item.id !== id);
-    });
+    setItems((prev) => (prev.length <= 1 ? prev : prev.filter((item) => item.id !== id)));
   }, []);
 
   const actualizarItem = useCallback(
     (id: number, campo: keyof ItemRow, valor: string) => {
-      setItems((prev) =>
-        prev.map((item) =>
-          item.id === id ? { ...item, [campo]: valor } : item
-        )
-      );
+      setItems((prev) => prev.map((item) => (item.id === id ? { ...item, [campo]: valor } : item)));
     },
     []
   );
 
   const limpiarFormulario = useCallback(() => {
     setNumero("");
-    setTipo("");
+    setTipo("FC");
     setFecha(new Date().toISOString().split("T")[0]);
-    setCliente("");
+    setProveedor("CUCIMUNDO");
     setItems([createEmptyItem()]);
   }, []);
 
-  // Calcular total
   const totalCalculado = items.reduce((sum, item) => {
     const cant = parseFloat(item.cantidad) || 0;
     const val = parseFloat(item.valorUnit) || 0;
     return sum + cant * val;
   }, 0);
 
+  const totalUnidades = items.reduce((sum, item) => sum + (parseFloat(item.cantidad) || 0), 0);
+
   const validar = (): string | null => {
     if (!numero.trim()) return "Ingresá el número de factura.";
     if (!fecha) return "Seleccioná la fecha de emisión.";
-    if (!cliente.trim()) return "Ingresá el nombre del cliente.";
-
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      if (!item.producto.trim())
-        return `Fila ${i + 1}: completá el nombre del producto.`;
-      if (!item.cantidad || parseFloat(item.cantidad) <= 0)
-        return `Fila ${i + 1}: la cantidad debe ser mayor a 0.`;
-      if (!item.valorUnit || parseFloat(item.valorUnit) < 0)
-        return `Fila ${i + 1}: el valor unitario no puede ser negativo.`;
+      if (!item.producto.trim()) return `Fila ${i + 1}: completá la descripción del producto.`;
+      if (!item.cantidad || parseFloat(item.cantidad) <= 0) return `Fila ${i + 1}: la cantidad debe ser mayor a 0.`;
     }
     return null;
   };
@@ -126,11 +100,7 @@ export function InvoiceForm() {
   const guardar = async () => {
     const error = validar();
     if (error) {
-      toast({
-        title: "Falta información",
-        description: error,
-        variant: "destructive",
-      });
+      toast({ title: "Falta información", description: error, variant: "destructive" });
       return;
     }
 
@@ -140,16 +110,13 @@ export function InvoiceForm() {
         numero: numero.trim(),
         tipo: tipo.trim(),
         fechaEmision: fecha,
-        cliente: cliente.trim(),
+        proveedor: proveedor.trim(),
         items: items.map((item) => ({
           codigo: item.codigo.trim(),
           producto: item.producto.trim(),
           cantidad: parseFloat(item.cantidad) || 0,
-          talla: item.talla.trim(),
           valorUnit: parseFloat(item.valorUnit) || 0,
-          subtotal:
-            (parseFloat(item.cantidad) || 0) *
-            (parseFloat(item.valorUnit) || 0),
+          subtotal: (parseFloat(item.cantidad) || 0) * (parseFloat(item.valorUnit) || 0),
         })),
       };
 
@@ -160,10 +127,7 @@ export function InvoiceForm() {
       });
 
       const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Error al guardar");
-      }
+      if (!res.ok) throw new Error(data.error || "Error al guardar");
 
       toast({
         title: "Factura registrada",
@@ -187,81 +151,46 @@ export function InvoiceForm() {
   return (
     <div className="space-y-6 animate-in fade-in max-w-4xl">
       <div>
-        <h2 className="text-xl font-bold text-stone-900">
-          Registrar nueva factura
-        </h2>
-        <p className="text-sm text-stone-500 mt-0.5">
-          Completá los datos de la factura y los productos
-        </p>
+        <h2 className="text-xl font-bold text-stone-900">Registrar nueva factura</h2>
+        <p className="text-sm text-stone-500 mt-0.5">Completá los datos de la factura y los productos</p>
       </div>
 
       {/* Datos generales */}
       <Card className="border-0 shadow-sm">
         <CardContent className="p-6">
           <h3 className="font-semibold text-stone-800 mb-4 flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center font-bold">
-              1
-            </div>
+            <div className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center font-bold">1</div>
             Datos de la factura
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="numero" className="text-sm font-medium">
-                N° de Factura *
-              </Label>
-              <Input
-                id="numero"
-                placeholder="Ej: FC-0005"
-                value={numero}
-                onChange={(e) => setNumero(e.target.value)}
-                className="h-11 text-base"
-              />
+              <Label htmlFor="numero" className="text-sm font-medium">N° de Factura *</Label>
+              <Input id="numero" placeholder="Ej: FC 000-0008806" value={numero} onChange={(e) => setNumero(e.target.value)} className="h-11 text-base" />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="tipo" className="text-sm font-medium">
-                Tipo
-              </Label>
+              <Label htmlFor="tipo" className="text-sm font-medium">Tipo</Label>
               <Select value={tipo} onValueChange={setTipo}>
                 <SelectTrigger className="h-11 text-base">
                   <SelectValue placeholder="Seleccionar" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="A">Factura A</SelectItem>
-                  <SelectItem value="B">Factura B</SelectItem>
-                  <SelectItem value="C">Factura C</SelectItem>
-                  <SelectItem value="M">Factura M</SelectItem>
-                  <SelectItem value="T">Ticket</SelectItem>
-                  <SelectItem value="F">Otro</SelectItem>
+                  <SelectItem value="FC">FC (Factura C)</SelectItem>
+                  <SelectItem value="FA">FA (Factura A)</SelectItem>
+                  <SelectItem value="FB">FB (Factura B)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="fecha" className="text-sm font-medium">
-                Fecha *
-              </Label>
-              <Input
-                id="fecha"
-                type="date"
-                value={fecha}
-                onChange={(e) => setFecha(e.target.value)}
-                className="h-11 text-base"
-              />
+              <Label htmlFor="fecha" className="text-sm font-medium">Fecha *</Label>
+              <Input id="fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="h-11 text-base" />
             </div>
 
-            <div className="space-y-2 sm:col-span-2 lg:col-span-1">
-              <Label htmlFor="cliente" className="text-sm font-medium">
-                Cliente *
-              </Label>
-              <Input
-                id="cliente"
-                placeholder="Nombre del cliente"
-                value={cliente}
-                onChange={(e) => setCliente(e.target.value)}
-                className="h-11 text-base"
-              />
+            <div className="space-y-2">
+              <Label htmlFor="proveedor" className="text-sm font-medium">Proveedor</Label>
+              <Input id="proveedor" placeholder="CUCIMUNDO" value={proveedor} onChange={(e) => setProveedor(e.target.value)} className="h-11 text-base" />
             </div>
           </div>
         </CardContent>
@@ -272,108 +201,42 @@ export function InvoiceForm() {
         <CardContent className="p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-stone-800 flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center font-bold">
-                2
-              </div>
+              <div className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center font-bold">2</div>
               Productos
             </h3>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={agregarFila}
-              className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-            >
-              <Plus className="w-4 h-4" />
-              Agregar fila
+            <Button type="button" variant="outline" size="sm" onClick={agregarFila} className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50">
+              <Plus className="w-4 h-4" /> Agregar fila
             </Button>
           </div>
 
           <div className="overflow-x-auto -mx-6 px-6">
             {/* Header */}
-            <div className="grid gap-2 min-w-[640px] mb-2 px-1">
-              <div className="grid grid-cols-[80px_1fr_80px_80px_120px_44px] gap-2 text-xs font-semibold text-stone-500 uppercase tracking-wider">
+            <div className="grid gap-2 min-w-[580px] mb-2 px-1">
+              <div className="grid grid-cols-[80px_1fr_80px_120px_120px_44px] gap-2 text-xs font-semibold text-stone-500 uppercase tracking-wider">
                 <span>Código</span>
-                <span>Producto *</span>
+                <span>Descripción *</span>
                 <span className="text-center">Cantidad *</span>
-                <span>Talla</span>
-                <span className="text-right">Valor Unit. *</span>
+                <span className="text-right">P.Unitario</span>
+                <span className="text-right">Subtotal</span>
                 <span></span>
               </div>
             </div>
 
             {/* Filas */}
             <div className="space-y-2">
-              {items.map((item, index) => {
+              {items.map((item) => {
                 const cant = parseFloat(item.cantidad) || 0;
                 const val = parseFloat(item.valorUnit) || 0;
                 const sub = cant * val;
 
                 return (
-                  <div
-                    key={item.id}
-                    className="grid grid-cols-[80px_1fr_80px_80px_120px_44px] gap-2 items-center p-2 rounded-lg bg-stone-50/80 hover:bg-stone-100 transition-colors group min-w-[640px]"
-                  >
-                    <Input
-                      placeholder="001"
-                      value={item.codigo}
-                      onChange={(e) =>
-                        actualizarItem(item.id, "codigo", e.target.value)
-                      }
-                      className="h-9 text-sm"
-                    />
-                    <Input
-                      placeholder="Nombre del producto"
-                      value={item.producto}
-                      onChange={(e) =>
-                        actualizarItem(item.id, "producto", e.target.value)
-                      }
-                      className="h-9 text-sm"
-                    />
-                    <Input
-                      type="number"
-                      placeholder="0"
-                      min="0"
-                      step="any"
-                      value={item.cantidad}
-                      onChange={(e) =>
-                        actualizarItem(item.id, "cantidad", e.target.value)
-                      }
-                      className="h-9 text-sm text-center"
-                    />
-                    <Input
-                      placeholder="-"
-                      value={item.talla}
-                      onChange={(e) =>
-                        actualizarItem(item.id, "talla", e.target.value)
-                      }
-                      className="h-9 text-sm text-center"
-                    />
-                    <div className="flex items-center justify-end gap-2">
-                      <Input
-                        type="number"
-                        placeholder="0.00"
-                        min="0"
-                        step="any"
-                        value={item.valorUnit}
-                        onChange={(e) =>
-                          actualizarItem(item.id, "valorUnit", e.target.value)
-                        }
-                        className="h-9 text-sm text-right max-w-[100px]"
-                      />
-                      {sub > 0 && (
-                        <span className="text-xs text-stone-400 w-20 text-right">
-                          {formatMoney(sub)}
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => quitarFila(item.id)}
-                      disabled={items.length <= 1}
-                      className="w-9 h-9 rounded-lg flex items-center justify-center text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                      title="Quitar fila"
-                    >
+                  <div key={item.id} className="grid grid-cols-[80px_1fr_80px_120px_120px_44px] gap-2 items-center p-2 rounded-lg bg-stone-50/80 hover:bg-stone-100 transition-colors group min-w-[580px]">
+                    <Input placeholder="S-0100" value={item.codigo} onChange={(e) => actualizarItem(item.id, "codigo", e.target.value)} className="h-9 text-sm" />
+                    <Input placeholder="Descripción del producto" value={item.producto} onChange={(e) => actualizarItem(item.id, "producto", e.target.value)} className="h-9 text-sm" />
+                    <Input type="number" placeholder="0" min="0" step="any" value={item.cantidad} onChange={(e) => actualizarItem(item.id, "cantidad", e.target.value)} className="h-9 text-sm text-center" />
+                    <Input type="number" placeholder="0.00" min="0" step="any" value={item.valorUnit} onChange={(e) => actualizarItem(item.id, "valorUnit", e.target.value)} className="h-9 text-sm text-right" />
+                    <div className="text-sm text-stone-600 text-right font-medium">{sub > 0 ? formatMoney(sub) : "-"}</div>
+                    <button type="button" onClick={() => quitarFila(item.id)} disabled={items.length <= 1} className="w-9 h-9 rounded-lg flex items-center justify-center text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer" title="Quitar fila">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
@@ -390,45 +253,25 @@ export function InvoiceForm() {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <p className="text-sm text-stone-500 mb-1">Total de la factura</p>
-              <p className="text-3xl font-bold text-stone-900">
-                {formatMoney(totalCalculado)}
-              </p>
-              <p className="text-xs text-stone-400 mt-1">
-                {items.length} producto(s) |{" "}
-                {items.reduce((sum, i) => sum + (parseFloat(i.cantidad) || 0), 0)}{" "}
-                unidades en total
-              </p>
+              <p className="text-3xl font-bold text-stone-900">{formatMoney(totalCalculado)}</p>
+              <p className="text-xs text-stone-400 mt-1">{items.length} producto(s) | {totalUnidades} unidades en total</p>
             </div>
             <div className="flex gap-2 w-full sm:w-auto">
-              <Button
-                variant="outline"
-                onClick={limpiarFormulario}
-                disabled={sending}
-                className="gap-2 h-11 px-5"
-              >
-                <RotateCcw className="w-4 h-4" />
-                Limpiar
+              <Button variant="outline" onClick={limpiarFormulario} disabled={sending} className="gap-2 h-11 px-5">
+                <RotateCcw className="w-4 h-4" /> Limpiar
               </Button>
-              <Button
-                onClick={guardar}
-                disabled={sending}
-                className="gap-2 h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-md shadow-emerald-200"
-              >
-                <Save className="w-4 h-4" />
-                {sending ? "Guardando..." : "Guardar Factura"}
+              <Button onClick={guardar} disabled={sending} className="gap-2 h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-md shadow-emerald-200">
+                <Save className="w-4 h-4" /> {sending ? "Guardando..." : "Guardar Factura"}
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Tip */}
       <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
         <Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
         <p className="text-sm text-amber-800">
-          <strong>Consejo:</strong> Los campos con * son obligatorios. El total se
-          calcula automáticamente. Si la factura tiene muchos productos, usá el
-          botón &quot;Agregar fila&quot; para agregar más líneas.
+          <strong>Consejo:</strong> Los campos con * son obligatorios. El subtotal se calcula automáticamente. Para importar muchas facturas de golpe, usá la pestaña "Importar".
         </p>
       </div>
     </div>

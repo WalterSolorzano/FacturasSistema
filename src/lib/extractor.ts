@@ -1,28 +1,4 @@
-import XLSX from "xlsx";
-
-// ============================================================
-// CONFIGURACION DE ANCLAS
-// Estas son las palabras que el sistema busca en cada hoja.
-// Si la plantilla real usa palabras distintas, se cambian aquí.
-// ============================================================
-const ANCLAS = {
-  factura: ["FACTURA", "FAC.", "FC-", "N° COMP.", "COMP. NRO.", "NUMERO"],
-  cliente: ["CLIENTE", "RAZON SOCIAL", "RAZÓN SOCIAL", "NOMBRE", "APELLIDO"],
-  producto: ["PRODUCTO", "DESCRIPCION", "DESCRIPCIÓN", "ITEM", "CONCEPTO", "SERVICIO"],
-  cantidad: ["CANTIDAD", "CANT.", "CANT", "QTY", "UNIDADES"],
-  valor: [
-    "VALOR",
-    "IMPORTE",
-    "PRECIO",
-    "P. UNITARIO",
-    "PRECIO UNIT.",
-    "P. UNIT.",
-    "SUBTOTAL",
-  ],
-  total: ["TOTAL", "TOTAL GENERAL", "IMPORTE TOTAL"],
-  codigo: ["CODIGO", "COD.", "CÓDIGO", "COD", "CÓD"],
-  talla: ["TALLA", "MEDIDA", "TALLA/NUMERO", "U. MEDIDA"],
-};
+import * as XLSX from "xlsx";
 
 // ============================================================
 // Tipos
@@ -31,7 +7,6 @@ export interface ProductoExtraido {
   codigo: string;
   producto: string;
   cantidad: number;
-  talla: string;
   valorUnit: number;
   subtotal: number;
 }
@@ -40,237 +15,112 @@ export interface FacturaExtraida {
   numero: string;
   tipo: string;
   fecha: string; // ISO string
-  cliente: string;
+  proveedor: string;
   productos: ProductoExtraido[];
   total: number;
-  hoja: string; // nombre de la hoja de origen
+  hoja: string;
   errores: string[];
   exito: boolean;
 }
 
 // ============================================================
-// Buscar un ancla en las celdas de la hoja
-// Devuelve la celda o null
+// LEER CELDA SEGURA
 // ============================================================
-function buscarAncla(
-  hoja: XLSX.WorkSheet,
-  posiblesAnclas: string[]
-): XLSX.CellObject | null {
-  if (!hoja["!ref"]) return null;
-  const rango = XLSX.utils.decode_range(hoja["!ref"]);
-
-  for (let r = rango.s.r; r <= rango.e.r; r++) {
-    for (let c = rango.s.c; c <= rango.e.c; c++) {
-      const addr = XLSX.utils.encode_cell({ r, c });
-      const celda = hoja[addr];
-      if (!celda || !celda.v) continue;
-
-      const valor = String(celda.v).toUpperCase().trim();
-
-      for (const ancla of posiblesAnclas) {
-        if (valor.includes(ancla.toUpperCase())) {
-          return celda;
-        }
-      }
-    }
-  }
-  return null;
-}
-
-// ============================================================
-// Buscar valor numérico contiguo a una celda (derecha o abajo)
-// ============================================================
-function buscarValorNumericoContiguo(
+function getCelda(
   hoja: XLSX.WorkSheet,
   fila: number,
   col: number
-): number | null {
-  // Primero a la derecha
-  for (let dc = 1; dc <= 3; dc++) {
-    const addr = XLSX.utils.encode_cell({ r: fila, c: col + dc });
-    const celda = hoja[addr];
-    if (celda && celda.v !== undefined && celda.v !== "") {
-      const num = typeof celda.v === "number" ? celda.v : parseFloat(String(celda.v));
-      if (!isNaN(num)) return num;
-    }
-  }
-  // Luego abajo
-  for (let dr = 1; dr <= 2; dr++) {
-    const addr = XLSX.utils.encode_cell({ r: fila + dr, c: col });
-    const celda = hoja[addr];
-    if (celda && celda.v !== undefined && celda.v !== "") {
-      const num = typeof celda.v === "number" ? celda.v : parseFloat(String(celda.v));
-      if (!isNaN(num)) return num;
-    }
-  }
-  return null;
+): XLSX.CellObject | undefined {
+  const addr = XLSX.utils.encode_cell({ r: fila, c: col });
+  return hoja[addr];
+}
+
+function getStr(hoja: XLSX.WorkSheet, fila: number, col: number): string {
+  const c = getCelda(hoja, fila, col);
+  if (!c || c.v === undefined || c.v === null) return "";
+  return String(c.v).trim();
+}
+
+function getNum(hoja: XLSX.WorkSheet, fila: number, col: number): number {
+  const c = getCelda(hoja, fila, col);
+  if (!c || c.v === undefined || c.v === null) return 0;
+  const n = typeof c.v === "number" ? c.v : parseFloat(String(c.v));
+  return isNaN(n) ? 0 : n;
 }
 
 // ============================================================
-// Buscar texto contiguo a una celda (derecha o abajo)
+// DETECTAR FORMATO DE LA HOJA
+// Cada hoja de CUCIMUNDO tiene variaciones en posición de columnas.
+// Devuelve las posiciones clave o null si no es factura válida.
 // ============================================================
-function buscarTextoContiguo(
-  hoja: XLSX.WorkSheet,
-  fila: number,
-  col: number
-): string {
-  // Primero a la derecha
-  for (let dc = 1; dc <= 3; dc++) {
-    const addr = XLSX.utils.encode_cell({ r: fila, c: col + dc });
-    const celda = hoja[addr];
-    if (celda && celda.v !== undefined && String(celda.v).trim() !== "") {
-      return String(celda.v).trim();
-    }
-  }
-  // Luego abajo
-  for (let dr = 1; dr <= 2; dr++) {
-    const addr = XLSX.utils.encode_cell({ r: fila + dr, c: col });
-    const celda = hoja[addr];
-    if (celda && celda.v !== undefined && String(celda.v).trim() !== "") {
-      return String(celda.v).trim();
-    }
-  }
-  return "";
+interface FormatoHoja {
+  filaHeader: number;     // fila donde están CANTIDAD, CODIGO, DESCRIPCION...
+  colCantidad: number;    // columna de CANTIDAD
+  colCodigo: number;      // columna de CODIGO
+  colDescripcion: number; // columna de DESCRIPCION
+  colPUnit: number;       // columna de P.UNI
+  colTotal: number;       // columna de TOTAL (por ítem)
+  colNumero: number;      // columna del número de factura en fila 1
+  colFecha: number;       // columna de la fecha en fila 3
 }
 
-// ============================================================
-// Encontrar la fecha en la hoja
-// ============================================================
-function buscarFecha(hoja: XLSX.WorkSheet): string | null {
+function detectarFormato(hoja: XLSX.WorkSheet): FormatoHoja | null {
   if (!hoja["!ref"]) return null;
   const rango = XLSX.utils.decode_range(hoja["!ref"]);
 
-  for (let r = rango.s.r; r <= rango.e.r; r++) {
-    for (let c = rango.s.c; c <= rango.e.c; c++) {
-      const addr = XLSX.utils.encode_cell({ r, c });
-      const celda = hoja[addr];
-      if (!celda || celda.v === undefined) continue;
+  // Buscar la fila de encabezados buscando "CANTIDAD" y "DESCRIPCION"
+  for (let r = Math.max(rango.s.r, 8); r <= Math.min(rango.e.r, 15); r++) {
+    let colCantidad = -1;
+    let colCodigo = -1;
+    let colDescripcion = -1;
+    let colPUnit = -1;
+    let colTotal = -1;
 
-      // Si es un objeto Date de xlsx
-      if (celda.v instanceof Date) {
-        return celda.v.toISOString();
-      }
+    for (let c = rango.s.c; c <= Math.min(rango.e.c, 12); c++) {
+      const val = getStr(hoja, r, c).toUpperCase();
 
-      // Si es un número que xlsx interpreta como fecha de Excel
-      if (typeof celda.v === "number" && celda.t === "n") {
-        // Los números de fecha de Excel están en un rango razonable
-        // Excel dates start from 1/1/1900 = 1
-        if (celda.v > 30000 && celda.v < 60000) {
-          try {
-            // xlsx parsea fechas automáticamente si la opción está activa
-            const fecha = XLSX.SSF.parse_date_code(celda.v);
-            if (fecha) {
-              const d = new Date(fecha.y, fecha.m - 1, fecha.d);
-              return d.toISOString();
-            }
-          } catch {
-            // no es fecha
-          }
-        }
-      }
-
-      // Si es un string con formato de fecha dd/mm/aaaa o similar
-      if (typeof celda.v === "string") {
-        const str = celda.v.trim();
-        const match = str.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
-        if (match) {
-          let dia = parseInt(match[1]);
-          let mes = parseInt(match[2]);
-          let anio = parseInt(match[3]);
-          if (anio < 100) anio += 2000;
-          const d = new Date(anio, mes - 1, dia);
-          if (!isNaN(d.getTime())) {
-            return d.toISOString();
-          }
-        }
-      }
-    }
-  }
-  return null;
-}
-
-// ============================================================
-// Extraer tipo de factura (A, B, C, M, T)
-// ============================================================
-function extraerTipoFactura(hoja: XLSX.WorkSheet, celdaFactura: { r: number; c: number }): string {
-  // Buscar cerca de la celda de FACTURA una letra de tipo
-  const tipos = ["A", "B", "C", "M", "T", "F"];
-
-  // Buscar en la misma fila, columnas cercanas
-  for (let c = Math.max(0, celdaFactura.c - 2); c <= celdaFactura.c + 4; c++) {
-    const addr = XLSX.utils.encode_cell({ r: celdaFactura.r, c });
-    const cell = hoja[addr];
-    if (cell && cell.v !== undefined) {
-      const val = String(cell.v).trim().toUpperCase();
-      for (const t of tipos) {
-        // Buscar patrón como "FACTURA A", "FAC. B", o tipo aislado
-        if (val === t || val.includes(` ${t}`) || val.includes(`${t} `)) {
-          return t;
-        }
-      }
-    }
-  }
-
-  // Buscar en filas cercanas arriba/abajo
-  for (let r = Math.max(0, celdaFactura.r - 2); r <= celdaFactura.r + 2; r++) {
-    for (let c = Math.max(0, celdaFactura.c - 1); c <= celdaFactura.c + 1; c++) {
-      const addr = XLSX.utils.encode_cell({ r, c });
-      const cell = hoja[addr];
-      if (cell && cell.v !== undefined) {
-        const val = String(cell.v).trim().toUpperCase();
-        for (const t of tipos) {
-          if (val === t || (val.length <= 3 && val.includes(t))) {
-            return t;
-          }
-        }
-      }
-    }
-  }
-
-  return "";
-}
-
-// ============================================================
-// Encontrar la fila de encabezado de la tabla de productos
-// y mapear las columnas
-// ============================================================
-function encontrarTablaProductos(
-  hoja: XLSX.WorkSheet
-): { filaHeader: number; cols: Record<string, number> } | null {
-  if (!hoja["!ref"]) return null;
-  const rango = XLSX.utils.decode_range(hoja["!ref"]);
-
-  // Buscar la fila que contenga al menos PRODUCTO y CANTIDAD
-  for (let r = rango.s.r; r <= rango.e.r; r++) {
-    let encontrados = 0;
-    const cols: Record<string, number> = {};
-
-    for (let c = rango.s.c; c <= rango.e.c; c++) {
-      const addr = XLSX.utils.encode_cell({ r, c });
-      const celda = hoja[addr];
-      if (!celda || celda.v === undefined) continue;
-
-      const val = String(celda.v).toUpperCase().trim();
-
-      for (const [clave, anclas] of Object.entries(ANCLAS)) {
-        if (cols[clave] !== undefined) continue; // ya encontrada
-        for (const ancla of anclas) {
-          if (val.includes(ancla)) {
-            cols[clave] = c;
-            encontrados++;
-            break;
-          }
-        }
-      }
+      if (val === "CANTIDAD") colCantidad = c;
+      else if (val === "CODIGO") colCodigo = c;
+      else if (val === "DESCRIPCION" || val === "DESCRIPCIÓN") colDescripcion = c;
+      else if (val === "P.UNI") colPUnit = c;
+      else if (val === "TOTAL") colTotal = c;
     }
 
-    // Necesitamos al menos PRODUCTO + CANTIDAD + VALOR
-    if (
-      cols.producto !== undefined &&
-      cols.cantidad !== undefined &&
-      cols.valor !== undefined
-    ) {
-      return { filaHeader: r, cols };
+    // Validar que encontramos los campos clave
+    if (colCantidad >= 0 && colDescripcion >= 0 && colPUnit >= 0 && colTotal >= 0) {
+      // Determinar posición del número de factura en fila 0 (0-indexed)
+      let colNumero = 6; // default
+
+      for (let c = rango.s.c; c <= Math.min(rango.e.c, 12); c++) {
+        const v = getStr(hoja, 0, c);
+        if (v.includes("FC 00") || v.includes("FC-00")) {
+          colNumero = c;
+          break;
+        }
+      }
+
+      // La fecha está en la misma columna que el número o una a la derecha
+      let colFecha = colNumero + 1;
+
+      // Verificar que hay una fecha ahí (fila 2, 0-indexed)
+      const fechaCell = getCelda(hoja, 2, colFecha);
+      if (!fechaCell || !(fechaCell.v instanceof Date) && typeof fechaCell?.v !== "number") {
+        const fechaCell2 = getCelda(hoja, 2, colFecha + 1);
+        if (fechaCell2 && (fechaCell2.v instanceof Date || typeof fechaCell2.v === "number")) {
+          colFecha = colFecha + 1;
+        }
+      }
+
+      return {
+        filaHeader: r,
+        colCantidad,
+        colCodigo: colCodigo >= 0 ? colCodigo : colCantidad + 1,
+        colDescripcion,
+        colPUnit,
+        colTotal,
+        colNumero,
+        colFecha,
+      };
     }
   }
 
@@ -278,7 +128,37 @@ function encontrarTablaProductos(
 }
 
 // ============================================================
-// EXTRAER UNA FACTURA COMPLETA DE UNA HOJA
+// EXTRAER FECHA DE UNA CELDA
+// ============================================================
+function extraerFecha(hoja: XLSX.WorkSheet, fila: number, col: number): string | null {
+  const c = getCelda(hoja, fila, col);
+  if (!c || c.v === undefined || c.v === null) return null;
+
+  // Si es un Date (xlsx con cellDates: true)
+  if (c.v instanceof Date) {
+    return c.v.toISOString();
+  }
+
+  // Si es número de fecha Excel
+  if (typeof c.v === "number") {
+    if (c.v > 30000 && c.v < 60000) {
+      try {
+        const fc = XLSX.SSF.parse_date_code(c.v);
+        if (fc) {
+          const d = new Date(fc.y, fc.m - 1, fc.d);
+          return d.toISOString();
+        }
+      } catch {
+        // no es fecha
+      }
+    }
+  }
+
+  return null;
+}
+
+// ============================================================
+// EXTRAER UNA FACTURA DE UNA HOJA
 // ============================================================
 export function extraerFacturaDeHoja(
   nombreHoja: string,
@@ -288,7 +168,7 @@ export function extraerFacturaDeHoja(
     numero: "",
     tipo: "",
     fecha: "",
-    cliente: "",
+    proveedor: "",
     productos: [],
     total: 0,
     hoja: nombreHoja,
@@ -296,184 +176,145 @@ export function extraerFacturaDeHoja(
     exito: false,
   };
 
-  // 1. Buscar número de factura
-  const celdaFactura = buscarAncla(hoja, ANCLAS.factura);
-  if (celdaFactura) {
-    const valor = buscarTextoContiguo(hoja, celdaFactura.r, celdaFactura.c);
-    if (valor) {
-      resultado.numero = valor;
-      // Intentar extraer tipo de la misma celda o cercana
-      resultado.tipo = extraerTipoFactura(hoja, {
-        r: celdaFactura.r,
-        c: celdaFactura.c,
-      });
-    } else {
-      resultado.errores.push("No se encontró el número junto a FACTURA");
-    }
-  } else {
-    // Si no hay ancla "FACTURA", intentar usar el nombre de la hoja
-    resultado.numero = nombreHoja;
-    resultado.errores.push('No se encontró ancla "FACTURA", se usó el nombre de la hoja');
+  if (!hoja["!ref"]) {
+    resultado.errores.push("Hoja vacía");
+    return resultado;
   }
 
-  // 2. Buscar fecha
-  const fecha = buscarFecha(hoja);
+  const rango = XLSX.utils.decode_range(hoja["!ref"]);
+
+  // Verificar que la hoja tiene tamaño mínimo
+  if (rango.e.r - rango.s.r < 5) {
+    resultado.errores.push("Hoja muy pequeña");
+    return resultado;
+  }
+
+  // 1. Detectar formato
+  const formato = detectarFormato(hoja);
+  if (!formato) {
+    resultado.errores.push("No se detectó el formato de factura");
+    return resultado;
+  }
+
+  // 2. Extraer número de factura (fila 0 en 0-indexed)
+  resultado.numero = getStr(hoja, 0, formato.colNumero);
+  if (!resultado.numero) {
+    // Usar nombre de la hoja como fallback
+    resultado.numero = nombreHoja.trim();
+    resultado.errores.push("Número extraído del nombre de la hoja");
+  }
+
+  // 3. Extraer tipo (fila 1 en 0-indexed)
+  const tipoStr = getStr(hoja, 1, formato.colCodigo);
+  if (tipoStr && tipoStr.length <= 5) {
+    resultado.tipo = tipoStr.toUpperCase();
+  } else {
+    // Intentar extraer del número de factura
+    const match = resultado.numero.match(/^(FA?|FC|FM|FT)/i);
+    if (match) {
+      resultado.tipo = match[1].toUpperCase();
+    } else {
+      resultado.tipo = "FC";
+    }
+  }
+
+  // 4. Extraer fecha (fila 2 en 0-indexed = fila 3 en 1-indexed)
+  const fecha = extraerFecha(hoja, 2, formato.colFecha);
   if (fecha) {
     resultado.fecha = fecha;
   } else {
-    resultado.errores.push("No se encontró fecha");
+    resultado.errores.push("No se encontró fecha válida");
   }
 
-  // 3. Buscar cliente
-  const celdaCliente = buscarAncla(hoja, ANCLAS.cliente);
-  if (celdaCliente) {
-    const valor = buscarTextoContiguo(hoja, celdaCliente.r, celdaCliente.c);
-    if (valor) {
-      resultado.cliente = valor;
-    } else {
-      resultado.errores.push("No se encontró el nombre junto a CLIENTE");
-    }
-  } else {
-    resultado.errores.push('No se encontró ancla "CLIENTE"');
+  // 5. Extraer proveedor/razón social (fila 3 en 0-indexed)
+  resultado.proveedor = getStr(hoja, 3, 0);
+  if (!resultado.proveedor) {
+    resultado.proveedor = getStr(hoja, 3, 1);
   }
 
-  // 4. Buscar tabla de productos
-  const tabla = encontrarTablaProductos(hoja);
-  if (tabla) {
-    if (!hoja["!ref"]) {
-      resultado.errores.push("La hoja no tiene datos");
-      return resultado;
+  // 6. Extraer productos
+  if (!hoja["!ref"]) return resultado;
+
+  // La descripción puede estar en colDescripcion o una columna antes
+  // (el header DESCRIPCION a veces está en una columna y los datos en la anterior)
+  const colDescData = formato.colDescripcion;
+
+  let filaActual = formato.filaHeader + 1;
+  const maxFilas = formato.filaHeader + 200;
+  let filasVaciasSeguidas = 0;
+  let encontroProductos = false;
+
+  while (filaActual <= Math.min(rango.e.r, maxFilas)) {
+    const cantidad = getNum(hoja, filaActual, formato.colCantidad);
+    const codigo = getStr(hoja, filaActual, formato.colCodigo);
+    const pUnit = getNum(hoja, filaActual, formato.colPUnit);
+    const totalItem = getNum(hoja, filaActual, formato.colTotal);
+
+    // Probar descripción en la columna del header y una antes
+    let descripcion = getStr(hoja, filaActual, colDescData);
+    if (!descripcion && colDescData > 0) {
+      descripcion = getStr(hoja, filaActual, colDescData - 1);
     }
-    const rango = XLSX.utils.decode_range(hoja["!ref"]);
 
-    let filaActual = tabla.filaHeader + 1;
+    // Si fila está vacía
+    if (!descripcion && cantidad === 0) {
+      filasVaciasSeguidas++;
+      // Antes de encontrar productos, permitir hasta 10 filas vacías (separación)
+      // Después de encontrar productos, 2 filas vacías seguidas = fin
+      if (encontroProductos && filasVaciasSeguidas >= 2) break;
+      if (!encontroProductos && filasVaciasSeguidas >= 10) break;
+      filaActual++;
+      continue;
+    }
 
-    // Recorrer filas hasta encontrar vacía o TOTAL
-    while (filaActual <= rango.e.r + 500) {
-      // Leer la celda de la columna PRODUCTO
-      const addrProd = XLSX.utils.encode_cell({
-        r: filaActual,
-        c: tabla.cols.producto,
+    filasVaciasSeguidas = 0;
+
+    // No incluir la fila de totales
+    const descUpper = descripcion.toUpperCase();
+    if (descUpper === "TOTAL" || descUpper.startsWith("TOTAL ")) break;
+
+    // Solo agregar si hay producto y cantidad
+    if (descripcion && cantidad > 0) {
+      encontroProductos = true;
+      resultado.productos.push({
+        codigo,
+        producto: descripcion,
+        cantidad,
+        valorUnit: pUnit,
+        subtotal: totalItem > 0 ? totalItem : cantidad * pUnit,
       });
-      const celdaProd = hoja[addrProd];
+    }
 
-      if (!celdaProd || celdaProd.v === undefined || String(celdaProd.v).trim() === "") {
-        break; // Fila vacía, fin de la tabla
-      }
+    filaActual++;
+  }
 
-      const nombreProd = String(celdaProd.v).trim().toUpperCase();
-
-      // Verificar si es la fila de TOTAL
-      if (ANCLAS.total.some((a) => nombreProd.includes(a.toUpperCase()))) {
+  // 7. Extraer total general
+  // Buscar la celda "TOTAL" y tomar el valor de la columna de total
+  for (let r = filaActual; r <= Math.min(rango.e.r, filaActual + 15); r++) {
+    const label = getStr(hoja, r, formato.colTotal - 1).toUpperCase();
+    const label2 = getStr(hoja, r, formato.colTotal).toUpperCase();
+    if (label === "TOTAL" || label2 === "TOTAL") {
+      const val = getNum(hoja, r, formato.colTotal);
+      if (val > 0) {
+        resultado.total = val;
         break;
       }
-
-      // Leer cantidad
-      let cantidad = 0;
-      if (tabla.cols.cantidad !== undefined) {
-        const addrCant = XLSX.utils.encode_cell({
-          r: filaActual,
-          c: tabla.cols.cantidad,
-        });
-        const celdaCant = hoja[addrCant];
-        if (celdaCant && celdaCant.v !== undefined) {
-          const num =
-            typeof celdaCant.v === "number"
-              ? celdaCant.v
-              : parseFloat(String(celdaCant.v));
-          if (!isNaN(num)) cantidad = num;
-        }
-      }
-
-      // Leer valor unitario
-      let valorUnit = 0;
-      if (tabla.cols.valor !== undefined) {
-        const addrVal = XLSX.utils.encode_cell({
-          r: filaActual,
-          c: tabla.cols.valor,
-        });
-        const celdaVal = hoja[addrVal];
-        if (celdaVal && celdaVal.v !== undefined) {
-          const num =
-            typeof celdaVal.v === "number"
-              ? celdaVal.v
-              : parseFloat(String(celdaVal.v));
-          if (!isNaN(num)) valorUnit = num;
-        }
-      }
-
-      // Leer código
-      let codigo = "";
-      if (tabla.cols.codigo !== undefined) {
-        const addrCod = XLSX.utils.encode_cell({
-          r: filaActual,
-          c: tabla.cols.codigo,
-        });
-        const celdaCod = hoja[addrCod];
-        if (celdaCod && celdaCod.v !== undefined) {
-          codigo = String(celdaCod.v).trim();
-        }
-      }
-
-      // Leer talla
-      let talla = "";
-      if (tabla.cols.talla !== undefined) {
-        const addrTalla = XLSX.utils.encode_cell({
-          r: filaActual,
-          c: tabla.cols.talla,
-        });
-        const celdaTalla = hoja[addrTalla];
-        if (celdaTalla && celdaTalla.v !== undefined) {
-          talla = String(celdaTalla.v).trim();
-        }
-      }
-
-      // Solo agregar si tiene producto y cantidad válida
-      if (nombreProd && cantidad > 0) {
-        resultado.productos.push({
-          codigo,
-          producto: String(celdaProd.v).trim(),
-          cantidad,
-          talla,
-          valorUnit,
-          subtotal: cantidad * valorUnit,
-        });
-      }
-
-      filaActual++;
-
-      // Seguridad: no recorrer más de 500 filas
-      if (filaActual - tabla.filaHeader > 500) break;
     }
-
-    if (resultado.productos.length === 0) {
-      resultado.errores.push("Se encontró la tabla pero sin productos válidos");
-    }
-  } else {
-    resultado.errores.push("No se encontró la tabla de productos (encabezados)");
   }
 
-  // 5. Buscar total general
-  const celdaTotal = buscarAncla(hoja, ANCLAS.total);
-  if (celdaTotal) {
-    const val = buscarValorNumericoContiguo(hoja, celdaTotal.r, celdaTotal.c);
-    if (val !== null) {
-      resultado.total = val;
-    } else {
-      // Calcular desde los productos
-      resultado.total = resultado.productos.reduce((s, p) => s + p.subtotal, 0);
-    }
-  } else {
-    // Calcular desde los productos
+  // Si no se encontró total explícito, calcular desde productos
+  if (resultado.total === 0) {
     resultado.total = resultado.productos.reduce((s, p) => s + p.subtotal, 0);
   }
 
-  // Determinar si la extracción fue exitosa
+  // 8. Determinar éxito
   resultado.exito =
     resultado.numero !== "" &&
-    resultado.cliente !== "" &&
-    resultado.productos.length > 0 &&
-    resultado.total > 0;
+    resultado.productos.length > 0;
+
+  if (resultado.productos.length === 0) {
+    resultado.errores.push("No se encontraron productos");
+  }
 
   return resultado;
 }
@@ -490,7 +331,7 @@ export function importarArchivoExcel(buffer: ArrayBuffer): {
 } {
   const workbook = XLSX.read(buffer, {
     type: "array",
-    cellDates: true, // Intentar parsear fechas automáticamente
+    cellDates: true,
   });
 
   const facturas: FacturaExtraida[] = [];
@@ -506,11 +347,9 @@ export function importarArchivoExcel(buffer: ArrayBuffer): {
     }
 
     const rango = XLSX.utils.decode_range(hoja["!ref"]);
-    if (
-      rango.e.r - rango.s.r < 3 ||
-      rango.e.c - rango.s.c < 2
-    ) {
-      // Hoja muy pequeña, probablemente vacía o no es factura
+
+    // Hoja muy pequeña = probablemente vacía
+    if (rango.e.r - rango.s.r < 5) {
       const cellCount = Object.keys(hoja).filter(
         (k) => k !== "!ref" && k !== "!margins"
       ).length;
