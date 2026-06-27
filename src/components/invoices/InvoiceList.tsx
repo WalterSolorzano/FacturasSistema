@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Search, Download, Trash2, ChevronLeft, ChevronRight, FileText, X, Filter, ShieldCheck } from "lucide-react";
+import { Search, Download, Trash2, ChevronLeft, ChevronRight, FileText, X, Filter, ShieldCheck, FileSpreadsheet, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,10 +10,40 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useAppStore } from "@/lib/store";
 import { useToast } from "@/hooks/use-toast";
 
-interface Invoice { id: string; numero: string; tipo: string; fechaEmision: string; proveedor: string; total: number; items: { id: string; codigo: string; producto: string; cantidad: number; valorUnit: number; subtotal: number }[]; }
+interface InvoiceItem {
+  id: string;
+  codigo: string;
+  producto: string;
+  cantidad: number;
+  valorUnit: number;
+  subtotal: number;
+}
+
+interface Invoice {
+  id: string;
+  numero: string;
+  tipo: string;
+  fechaEmision: string;
+  proveedor: string;
+  total: number;
+  hojaOrigen: string;
+  archivoOrigen: string;
+  advertencias: string;
+  items: InvoiceItem[];
+}
 
 function formatMoney(v: number) { return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 2 }).format(v); }
 function formatDate(d: string) { return new Date(d).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }); }
+
+function parseAdvertencias(str: string): string[] {
+  if (!str) return [];
+  try {
+    const parsed = JSON.parse(str);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 export function InvoiceList() {
   const { refreshKey, activeProjectId, triggerRefresh } = useAppStore();
@@ -29,6 +59,7 @@ export function InvoiceList() {
   const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
@@ -60,7 +91,7 @@ export function InvoiceList() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = "BaseDeDatos.xlsx";
       document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
-      toast({ title: "Excel descargado", description: "BaseDeDatos.xlsx" });
+      toast({ title: "Excel descargado", description: "BaseDeDatos.xlsx con hoja de Trazabilidad" });
     } catch { toast({ title: "Error", description: "No se pudo generar el Excel.", variant: "destructive" }); }
     finally { setExporting(false); }
   };
@@ -94,7 +125,72 @@ export function InvoiceList() {
       </div>
       {showFilters && (<Card className="border-0 shadow-sm animate-in slide-in-from-top-2"><CardContent className="p-4"><div className="flex items-center justify-between mb-3"><p className="text-sm font-medium text-stone-700">Filtrar por fecha</p><button onClick={limpiarFiltros} className="text-xs text-stone-500 hover:text-stone-700 flex items-center gap-1 cursor-pointer"><X className="w-3 h-3" /> Limpiar</button></div><div className="grid grid-cols-2 gap-3"><div className="space-y-1"><label className="text-xs text-stone-500">Desde</label><Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="h-10" /></div><div className="space-y-1"><label className="text-xs text-stone-500">Hasta</label><Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="h-10" /></div></div></CardContent></Card>)}
       {loading ? (<div className="space-y-3">{[...Array(5)].map((_, i) => <div key={i} className="h-20 rounded-xl bg-stone-100 animate-pulse" />)}</div>) : invoices.length === 0 ? (<Card className="border-0 shadow-sm"><CardContent className="p-10 text-center"><div className="w-14 h-14 mx-auto mb-3 rounded-full bg-stone-100 flex items-center justify-center"><FileText className="w-7 h-7 text-stone-400" /></div><h3 className="font-semibold text-stone-900 mb-1">No se encontraron facturas</h3><p className="text-sm text-stone-500">Probá con otra búsqueda o importá facturas.</p></CardContent></Card>) : (
-        <div className="space-y-3">{invoices.map((inv) => (<Card key={inv.id} className="border-0 shadow-sm hover:shadow-md transition-shadow"><CardContent className="p-4 sm:p-5"><div className="flex items-start justify-between gap-3"><div className="flex items-start gap-3 min-w-0 flex-1"><div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0 mt-0.5"><ShieldCheck className="w-5 h-5 text-purple-800" /></div><div className="min-w-0 flex-1"><div className="flex items-center gap-2 flex-wrap"><p className="font-semibold text-stone-900">{inv.numero}</p>{inv.tipo && <Badge variant="secondary" className="text-xs px-2 py-0.5 bg-stone-100">{inv.tipo}</Badge>}</div><p className="text-xs text-stone-400 mt-0.5">{formatDate(inv.fechaEmision)} | {inv.items.length} producto(s) | {inv.items.reduce((s, i) => s + i.cantidad, 0)} unidades</p><div className="mt-2 space-y-0.5">{inv.items.slice(0, 4).map((item) => (<p key={item.id} className="text-xs text-stone-500"><span className="text-stone-400">{item.cantidad}x</span> {item.codigo && <span className="text-stone-400">[{item.codigo}] </span>}{item.producto} <span className="text-stone-400">- {formatMoney(item.subtotal)}</span></p>))}{inv.items.length > 4 && <p className="text-xs text-purple-700 font-medium">+{inv.items.length - 4} producto(s) más...</p>}</div></div></div><div className="flex flex-col items-end gap-1.5 flex-shrink-0"><p className="font-bold text-lg text-stone-900">{formatMoney(inv.total)}</p><button onClick={() => setDeleteTarget(inv)} className="text-stone-400 hover:text-rose-600 transition-colors p-1 cursor-pointer"><Trash2 className="w-4 h-4" /></button></div></div></CardContent></Card>))}{totalPaginas > 1 && (<div className="flex items-center justify-center gap-3 pt-2"><Button variant="outline" size="sm" onClick={() => setPagina((p) => Math.max(1, p - 1))} disabled={pagina <= 1} className="gap-1"><ChevronLeft className="w-4 h-4" /> Anterior</Button><span className="text-sm text-stone-600">Página {pagina} de {totalPaginas}</span><Button variant="outline" size="sm" onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))} disabled={pagina >= totalPaginas} className="gap-1">Siguiente <ChevronRight className="w-4 h-4" /></Button></div>)}</div>)}
+        <div className="space-y-3">{invoices.map((inv) => {
+          const warns = parseAdvertencias(inv.advertencias);
+          const isExpanded = expandedId === inv.id;
+
+          return (
+            <Card key={inv.id} className="border-0 shadow-sm hover:shadow-md transition-shadow">
+              <CardContent className="p-4 sm:p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${warns.length > 0 ? "bg-amber-100" : "bg-purple-100"}`}>
+                      {warns.length > 0 ? <AlertTriangle className="w-5 h-5 text-amber-600" /> : <ShieldCheck className="w-5 h-5 text-purple-800" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-stone-900">{inv.numero}</p>
+                        {inv.tipo && <Badge variant="secondary" className="text-xs px-2 py-0.5 bg-stone-100">{inv.tipo}</Badge>}
+                        {warns.length > 0 && <Badge className="text-xs px-1.5 py-0 bg-amber-100 text-amber-700 border-amber-200">{warns.length} aviso(s)</Badge>}
+                      </div>
+                      <p className="text-xs text-stone-400 mt-0.5">
+                        {formatDate(inv.fechaEmision)} | {inv.proveedor || "(sin cliente)"} | {inv.items.length} producto(s) | {inv.items.reduce((s, i) => s + i.cantidad, 0)} unidades
+                      </p>
+                      {/* Trazabilidad compacta */}
+                      {inv.hojaOrigen && inv.hojaOrigen !== "creación manual" && (
+                        <p className="text-xs text-stone-400 mt-0.5 flex items-center gap-1">
+                          <FileSpreadsheet className="w-3 h-3" />
+                          {inv.hojaOrigen}{inv.archivoOrigen ? ` (${inv.archivoOrigen})` : ""}
+                        </p>
+                      )}
+
+                      {/* Productos */}
+                      <div className="mt-2 space-y-0.5">
+                        {inv.items.slice(0, isExpanded ? undefined : 4).map((item) => (
+                          <p key={item.id} className="text-xs text-stone-500">
+                            <span className="text-stone-400">{item.cantidad}x</span> {item.codigo && <span className="text-stone-400">[{item.codigo}] </span>}{item.producto} <span className="text-stone-400">- {formatMoney(item.subtotal)}</span>
+                          </p>
+                        ))}
+                        {inv.items.length > 4 && !isExpanded && <p className="text-xs text-purple-700 font-medium cursor-pointer" onClick={() => setExpandedId(inv.id)}>+{inv.items.length - 4} producto(s) más...</p>}
+                      </div>
+
+                      {/* Advertencias expandidas */}
+                      {isExpanded && warns.length > 0 && (
+                        <div className="mt-2 p-2 rounded bg-amber-50 border border-amber-100">
+                          <p className="text-xs font-semibold text-amber-600 mb-1">Advertencias de importación:</p>
+                          <ul className="space-y-0.5">
+                            {warns.map((w, wi) => <li key={wi} className="text-xs text-amber-700">- {w}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                    <p className="font-bold text-lg text-stone-900">{formatMoney(inv.total)}</p>
+                    <div className="flex gap-1">
+                      {inv.items.length > 4 && (
+                        <button onClick={() => setExpandedId(isExpanded ? null : inv.id)} className="text-stone-400 hover:text-purple-600 transition-colors p-1 cursor-pointer text-xs">
+                          {isExpanded ? "ver menos" : "ver todo"}
+                        </button>
+                      )}
+                      <button onClick={() => setDeleteTarget(inv)} className="text-stone-400 hover:text-rose-600 transition-colors p-1 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}{totalPaginas > 1 && (<div className="flex items-center justify-center gap-3 pt-2"><Button variant="outline" size="sm" onClick={() => setPagina((p) => Math.max(1, p - 1))} disabled={pagina <= 1} className="gap-1"><ChevronLeft className="w-4 h-4" /> Anterior</Button><span className="text-sm text-stone-600">Página {pagina} de {totalPaginas}</span><Button variant="outline" size="sm" onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))} disabled={pagina >= totalPaginas} className="gap-1">Siguiente <ChevronRight className="w-4 h-4" /></Button></div>)}</div>)}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Eliminar factura</AlertDialogTitle><AlertDialogDescription>Estás por eliminar <strong>{deleteTarget?.numero}</strong> del {deleteTarget ? formatDate(deleteTarget.fechaEmision) : ""}. Esta acción no se puede deshacer.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={eliminarFactura} disabled={deleting} className="bg-rose-600 hover:bg-rose-700 text-white">{deleting ? "Eliminando..." : "Sí, eliminar"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     </div>
   );

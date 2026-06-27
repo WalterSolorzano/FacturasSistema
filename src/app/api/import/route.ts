@@ -13,9 +13,27 @@ export async function POST(request: Request) {
       );
     }
 
+    // Validar extensión
+    const nombre = archivo.name;
+    if (!nombre.match(/\.xlsx$/i)) {
+      return NextResponse.json(
+        { error: "Solo se aceptan archivos .xlsx" },
+        { status: 400 }
+      );
+    }
+
+    // Validar tamaño (máximo 50MB)
+    if (archivo.size > 50 * 1024 * 1024) {
+      return NextResponse.json(
+        { error: "El archivo es demasiado grande (máximo 50MB)." },
+        { status: 400 }
+      );
+    }
+
     const buffer = await archivo.arrayBuffer();
 
-    const resultado = importarArchivoExcel(buffer);
+    // Pasar el nombre del archivo para trazabilidad
+    const resultado = importarArchivoExcel(buffer, nombre);
 
     return NextResponse.json(resultado);
   } catch (error) {

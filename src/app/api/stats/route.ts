@@ -20,11 +20,17 @@ export async function GET(request: Request) {
       where,
       by: ["proveedor"],
     });
+
+    // CORREGIDO: buscar items solo de las facturas del proyecto
     const totalProductos = await db.invoiceItem.count({
-      where: { invoice: where },
+      where: projectId
+        ? { invoice: { projectId } }
+        : {},
     });
     const totalUnidades = await db.invoiceItem.aggregate({
-      where: { invoice: where },
+      where: projectId
+        ? { invoice: { projectId } }
+        : {},
       _sum: { cantidad: true },
     });
 

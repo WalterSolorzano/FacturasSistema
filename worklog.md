@@ -90,4 +90,32 @@ Work Log:
 Stage Summary:
 - /home/z/my-project/download/CUCIMUNDO_Facturas.xlsm created
 - Valid OLE structure verified with olefile
-- VBA macros for save and search included
+- VBA macros for save and search included---
+Task ID: 1
+Agent: Main Agent
+Task: Mega auditoría de integridad del sistema de facturas
+
+Work Log:
+- Leí todos los 15 archivos del sistema (schema, 8 APIs, 5 componentes UI, store, db)
+- Identifiqué 15 puntos críticos de fallo
+- Actualicé prisma/schema.prisma: agregué hojaOrigen, archivoOrigen, advertencias
+- Reescribí extractor.ts: archivoOrigen, fechas no inventadas, safeNum con advertencias, validación rango fechas, _numeroDeHoja y _fechaDudosa flags
+- Reescribí import/confirm: rechaza facturas sin fecha, guarda trazabilidad completa, ya no inventa new Date()
+- Reescribí invoices/route POST: safeN contra Infinity, validación de fecha, items sin descripción ignorados
+- Corregí invoices/[id] DELETE: eliminado delete manual de items (cascade ya lo hace)
+- Corregí stats/route: consulta de items por proyecto con filtro correcto
+- Reescribí export/route: columnas correctas (Número, Fecha, Cliente, Cantidad, Descripción, Costo, Hoja origen) + hoja Trazabilidad
+- Reescribí Importar.tsx: muestra advertencias, indicadores de datos dudosos, archivo/hoja origen
+- Reescribí InvoiceList.tsx: muestra trazabilidad, advertencias, expandible
+- Actualicé Dashboard.tsx: quitada export-original, texto "no se inventa ningún dato"
+- Agregué validación de extensión .xlsx y tamaño 50MB en import route
+- Build exitoso sin errores
+
+Stage Summary:
+- Sistema blindado: no se inventa ni modifica ningún dato de la fuente
+- Trazabilidad total: cada factura registra archivo Excel, hoja y advertencias
+- Export con 2 hojas: BaseDeDatos (columnas pedidas) + Trazabilidad (origen + advertencias)
+- Fechas: rechazadas si no se encuentran, no se inventa new Date()
+- Números: NaN/Infinity → 0 con advertencia registrada
+- 15 puntos de fallo corregidos
+

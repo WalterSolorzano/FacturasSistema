@@ -2,6 +2,10 @@ import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import type { FacturaExtraida } from "@/lib/extractor";
 
+/**
+ * safeN — Convierte un valor a número seguro para Prisma.
+ * NUNCA devuelve NaN ni Infinity.
+ */
 function safeN(v: unknown): number {
   if (v === undefined || v === null) return 0;
   const n = typeof v === "number" ? v : parseFloat(String(v));
@@ -48,11 +52,12 @@ export async function POST(request: Request) {
 
     let importadas = 0;
     let duplicadas = 0;
-    let erroresDetalle: string[] = [];
+    let omitidasFecha = 0;
+    const erroresDetalle: string[] = [];
 
     for (const fac of exitosas) {
       try {
-        // Verificar si ya existe por número dentro del proyecto
+        // Verificar duplicado por número dentro del proyecto
         const existente = await db.invoice.findFirst({
           where: { numero: fac.numero, projectId },
         });
@@ -67,15 +72,49 @@ export async function POST(request: Request) {
           continue;
         }
 
+        // ============================================================
+        // FECHA: NO INVENTAR. Si no hay fecha válida, RECHAZAR.
+        // ============================================================
+        if (!fac.fecha) {
+          omitidasFecha++;
+          erroresDetalle.push(`${fac.numero}: RECHAZADA — sin fecha válida (no se inventa fecha)`);
+          continue;
+        }
+
         let fechaEmision: Date;
-        if (fac.fecha) {
-          const d = new Date(fac.fecha);
-          fechaEmision = isNaN(d.getTime()) ? new Date() : d;
-        } else {
-          fechaEmision = new Date();
+        const d = new Date(fac.fecha);
+        if (isNaN(d.getTime())) {
+          omitidasFecha++;
+          erroresDetalle.push(`${fac.numero}: RECHAZADA — fecha inválida "${fac.fecha}"`);
+          continue;
+        }
+        // Validar rango razonable
+        if (d.getFullYear() < 1990 || d.getFullYear() > 2030) {
+          omitidasFecha++;
+          erroresDetalle.push(`${fac.numero}: RECHAZADA — fecha fuera de rango (${d.getFullYear()})`);
+          continue;
+        }
+        fechaEmision = d;
+
+        // ============================================================
+        // RECOLECTAR ADVERTENCIAS DE TRAZABILIDAD
+        // ============================================================
+        const allWarnings: string[] = [];
+
+        if (fac._numeroDeHoja) {
+          allWarnings.push("Numero tomado del nombre de hoja (no del contenido)");
+        }
+        if (fac._fechaDudosa) {
+          allWarnings.push("Fecha dudosa");
+        }
+        if (fac.advertencias && fac.advertencias.length > 0) {
+          allWarnings.push(...fac.advertencias);
         }
 
         const total = safeN(fac.total);
+        const advertenciasStr = allWarnings.length > 0
+          ? JSON.stringify(allWarnings)
+          : "";
 
         await db.invoice.create({
           data: {
@@ -85,6 +124,9 @@ export async function POST(request: Request) {
             fechaEmision,
             proveedor: String(fac.proveedor || "").trim(),
             total,
+            hojaOrigen: String(fac.hoja || "").trim(),
+            archivoOrigen: String(fac.archivoOrigen || "").trim(),
+            advertencias: advertenciasStr,
             items: {
               create: fac.productos.map((p) => ({
                 codigo: String(p.codigo || "").trim(),
@@ -104,10 +146,18 @@ export async function POST(request: Request) {
       }
     }
 
+    // Construir resumen con contexto
+    const resumen: string[] = [];
+    if (omitidasFecha > 0) {
+      resumen.push(`${omitidasFecha} factura(s) rechazada(s) por falta de fecha`);
+    }
+
     return NextResponse.json({
       importadas,
       duplicadas,
+      omitidasFecha,
       errores: erroresDetalle,
+      resumen,
     });
   } catch (error) {
     console.error("Error al confirmar importación:", error);
