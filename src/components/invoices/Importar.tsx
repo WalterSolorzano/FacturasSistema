@@ -57,7 +57,7 @@ function formatDate(iso: string): string {
 type Paso = "subir" | "revision" | "confirmar" | "resultado";
 
 export function Importar() {
-  const { triggerRefresh, setActiveTab } = useAppStore();
+  const { triggerRefresh, setActiveTab, activeProjectId } = useAppStore();
   const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -127,7 +127,7 @@ export function Importar() {
       const res = await fetch("/api/import/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ facturas: facturasAImportar }),
+        body: JSON.stringify({ facturas: facturasAImportar, projectId: activeProjectId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);

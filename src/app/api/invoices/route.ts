@@ -4,11 +4,11 @@ import { NextResponse } from "next/server";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { numero, tipo, fechaEmision, proveedor, items } = body;
+    const { numero, tipo, fechaEmision, proveedor, projectId, items } = body;
 
-    if (!numero || !fechaEmision || !items || items.length === 0) {
+    if (!numero || !fechaEmision || !projectId || !items || items.length === 0) {
       return NextResponse.json(
-        { error: "Faltan datos obligatorios: numero, fechaEmision y al menos un producto." },
+        { error: "Faltan datos obligatorios: numero, fechaEmision, projectId y al menos un producto." },
         { status: 400 }
       );
     }
@@ -24,6 +24,7 @@ export async function POST(request: Request) {
 
     const invoice = await db.invoice.create({
       data: {
+        projectId,
         numero: numero.trim(),
         tipo: (tipo || "").trim(),
         fechaEmision: new Date(fechaEmision),
@@ -59,10 +60,15 @@ export async function GET(request: Request) {
     const desde = searchParams.get("desde") || "";
     const hasta = searchParams.get("hasta") || "";
     const proveedor = searchParams.get("proveedor") || "";
+    const projectId = searchParams.get("projectId") || "";
     const pagina = parseInt(searchParams.get("pagina") || "1");
     const porPagina = parseInt(searchParams.get("porPagina") || "20");
 
     const where: Record<string, unknown> = {};
+
+    if (projectId) {
+      where.projectId = projectId;
+    }
 
     if (busqueda) {
       where.OR = [
