@@ -1,11 +1,11 @@
 "use client";
 
 import { useAppStore, type Tab } from "@/lib/store";
-import { FileText, PlusCircle, Search, LayoutDashboard } from "lucide-react";
+import { FileText, Upload, Search, LayoutDashboard } from "lucide-react";
 
 const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "dashboard", label: "Inicio", icon: <LayoutDashboard className="w-5 h-5" /> },
-  { id: "nueva", label: "Nueva Factura", icon: <PlusCircle className="w-5 h-5" /> },
+  { id: "importar", label: "Importar", icon: <Upload className="w-5 h-5" /> },
   { id: "consultar", label: "Consultar", icon: <Search className="w-5 h-5" /> },
 ];
 
@@ -26,7 +26,7 @@ export function AppHeader() {
                 Registro de Facturas
               </h1>
               <p className="text-xs text-stone-500 leading-tight hidden sm:block">
-                Sistema de control
+                Importá, consultá, exportá
               </p>
             </div>
           </div>

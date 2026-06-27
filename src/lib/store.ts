@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type Tab = "dashboard" | "nueva" | "consultar";
+export type Tab = "dashboard" | "importar" | "consultar";
 
 interface AppState {
   activeTab: Tab;
