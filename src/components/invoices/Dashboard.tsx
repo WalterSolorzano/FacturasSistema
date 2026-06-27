@@ -73,18 +73,18 @@ function QuickAction({ title, description, tab, icon }: {
     if (tab === "export") {
       fetch("/api/invoices/export?format=basedatos").then((r) => { if (!r.ok) throw new Error(); return r.blob(); }).then((blob) => {
         const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a"); a.href = url; a.download = "BaseDeDatos_CUCIMUNDO.xlsx";
+        const a = document.createElement("a"); a.href = url; a.download = "BaseDeDatos.xlsx";
         document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
-        toast({ title: "Excel descargado", description: "BaseDeDatos_CUCIMUNDO.xlsx" });
+        toast({ title: "Excel descargado", description: "BaseDeDatos.xlsx" });
       }).catch(() => { toast({ title: "Error al exportar", variant: "destructive" }); });
       return;
     }
     if (tab === "export-original") {
       fetch("/api/invoices/export?format=original").then((r) => { if (!r.ok) throw new Error(); return r.blob(); }).then((blob) => {
         const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a"); a.href = url; a.download = "CUCIMUNDO_Facturas_Original.xlsx";
+        const a = document.createElement("a"); a.href = url; a.download = "Facturas_Original.xlsx";
         document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
-        toast({ title: "Excel descargado", description: "CUCIMUNDO_Facturas_Original.xlsx" });
+        toast({ title: "Excel descargado", description: "Facturas_Original.xlsx" });
       }).catch(() => { toast({ title: "Error al exportar", variant: "destructive" }); });
       return;
     }
@@ -183,7 +183,7 @@ export function Dashboard() {
         <QuickAction title="Importar facturas" description="Subí el archivo Excel con todas las hojas" tab="importar" icon={<Upload className="w-5 h-5" />} />
         <QuickAction title="Buscar facturas" description="Buscá por número, producto o fecha" tab="consultar" icon={<Search className="w-5 h-5" />} />
         <QuickAction title="Base de Datos" description="Exportá la base de datos en Excel" tab="export" icon={<Download className="w-5 h-5" />} />
-        <QuickAction title="Formato Original" description="Exportá cada factura como hoja (formato CUCIMUNDO)" tab="export-original" icon={<Download className="w-5 h-5" />} />
+        <QuickAction title="Formato Original" description="Exportá cada factura como hoja (formato original)" tab="export-original" icon={<Download className="w-5 h-5" />} />
       </div>
     </div>
   );

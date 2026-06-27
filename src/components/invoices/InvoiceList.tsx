@@ -106,10 +106,10 @@ export function InvoiceList() {
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url; a.download = "BaseDeDatos_CUCIMUNDO.xlsx";
+      a.href = url; a.download = "BaseDeDatos.xlsx";
       document.body.appendChild(a); a.click(); a.remove();
       window.URL.revokeObjectURL(url);
-      toast({ title: "Excel descargado", description: "BaseDeDatos_CUCIMUNDO.xlsx se guardó en tu computadora." });
+      toast({ title: "Excel descargado", description: "BaseDeDatos.xlsx se guardó en tu computadora." });
     } catch {
       toast({ title: "Error", description: "No se pudo generar el Excel.", variant: "destructive" });
     } finally { setExporting(false); }

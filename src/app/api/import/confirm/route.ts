@@ -2,6 +2,14 @@ import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import type { FacturaExtraida } from "@/lib/extractor";
 
+// Sanitiza un valor numérico: NaN/null/undefined/Infinity → 0
+function safeN(v: unknown): number {
+  if (v === undefined || v === null) return 0;
+  const n = typeof v === "number" ? v : parseFloat(String(v));
+  if (isNaN(n) || !isFinite(n)) return 0;
+  return n;
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -40,32 +48,46 @@ export async function POST(request: Request) {
         }
 
         // Validaciones de seguridad
-        if (fac.productos.length === 0) {
+        if (!fac.productos || fac.productos.length === 0) {
           erroresDetalle.push(`${fac.numero}: sin productos`);
           continue;
         }
 
+        // Sanitizar fecha
+        let fechaEmision: Date;
+        if (fac.fecha) {
+          const d = new Date(fac.fecha);
+          fechaEmision = isNaN(d.getTime()) ? new Date() : d;
+        } else {
+          fechaEmision = new Date();
+        }
+
+        // Sanitizar total de la factura
+        const total = safeN(fac.total);
+
         await db.invoice.create({
           data: {
-            numero: fac.numero,
-            tipo: fac.tipo,
-            fechaEmision: fac.fecha ? new Date(fac.fecha) : new Date(),
-            proveedor: fac.proveedor,
-            total: fac.total,
+            numero: String(fac.numero || "").trim(),
+            tipo: String(fac.tipo || "").trim(),
+            fechaEmision,
+            proveedor: String(fac.proveedor || "").trim(),
+            total,
             items: {
               create: fac.productos.map((p) => ({
-                codigo: p.codigo,
-                producto: p.producto,
-                cantidad: p.cantidad,
-                valorUnit: p.valorUnit,
-                subtotal: p.subtotal,
+                codigo: String(p.codigo || "").trim(),
+                producto: String(p.producto || "").trim(),
+                cantidad: safeN(p.cantidad),
+                valorUnit: safeN(p.valorUnit),
+                subtotal: safeN(p.subtotal),
               })),
             },
           },
         });
         importadas++;
-      } catch (err) {
-        erroresDetalle.push(`${fac.numero}: error al guardar`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`Error guardando ${fac.numero}:`, msg);
+        erroresDetalle.push(`${fac.numero}: ${msg}`);
       }
     }
 

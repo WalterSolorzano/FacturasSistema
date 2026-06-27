@@ -75,7 +75,7 @@ export function InvoiceForm() {
   const [numero, setNumero] = useState("");
   const [tipo, setTipo] = useState("FC");
   const [fecha, setFecha] = useState(() => new Date().toISOString().split("T")[0]);
-  const [proveedor, setProveedor] = useState("CUCIMUNDO");
+  const [proveedor, setProveedor] = useState("");
   const [items, setItems] = useState<ItemRow[]>([createEmptyItem()]);
 
   // Refs for keyboard navigation
@@ -168,7 +168,7 @@ export function InvoiceForm() {
     setNumero("");
     setTipo("FC");
     setFecha(new Date().toISOString().split("T")[0]);
-    setProveedor("CUCIMUNDO");
+    setProveedor("");
     setItems([createEmptyItem()]);
     setTimeout(() => focusHeaderField("numero"), 30);
   }, [focusHeaderField]);
@@ -298,7 +298,7 @@ export function InvoiceForm() {
               <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Razón Social</label>
               <CellInput
                 inputRef={(el) => { headerRefs.current["proveedor"] = el; }}
-                value={proveedor} onChange={setProveedor} placeholder="CUCIMUNDO"
+                value={proveedor} onChange={setProveedor} placeholder="Nombre del proveedor"
                 onKeyDown={(e) => handleHeaderKeyDown("proveedor", "items-start", e)}
               />
             </div>
