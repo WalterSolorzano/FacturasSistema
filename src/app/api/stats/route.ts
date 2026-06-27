@@ -7,45 +7,40 @@ export async function GET() {
     const sumaTotales = await db.invoice.aggregate({
       _sum: { total: true },
     });
-    const clientesUnicos = await db.invoice.groupBy({
-      by: ["cliente"],
+    const proveedoresUnicos = await db.invoice.groupBy({
+      by: ["proveedor"],
     });
     const totalProductos = await db.invoiceItem.count();
-
-    // Facturas de hoy
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
-    const manana = new Date(hoy);
-    manana.setDate(manana.getDate() + 1);
-
-    const facturasHoy = await db.invoice.count({
-      where: {
-        fechaEmision: { gte: hoy, lt: manana },
-      },
+    const totalUnidades = await db.invoiceItem.aggregate({
+      _sum: { cantidad: true },
     });
 
-    // Total facturado hoy
-    const totalHoy = await db.invoice.aggregate({
-      where: {
-        fechaEmision: { gte: hoy, lt: manana },
-      },
+    // Facturas del mes actual
+    const ahora = new Date();
+    const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+    const facturasMes = await db.invoice.count({
+      where: { fechaEmision: { gte: inicioMes } },
+    });
+    const totalMes = await db.invoice.aggregate({
+      where: { fechaEmision: { gte: inicioMes } },
       _sum: { total: true },
     });
 
     // Últimas 5 facturas
     const ultimasFacturas = await db.invoice.findMany({
       include: { items: true },
-      orderBy: { createdAt: "desc" },
+      orderBy: { fechaEmision: "desc" },
       take: 5,
     });
 
     return NextResponse.json({
       totalFacturas,
       totalFacturado: sumaTotales._sum.total || 0,
-      clientesUnicos: clientesUnicos.length,
+      proveedoresUnicos: proveedoresUnicos.length,
       totalProductos,
-      facturasHoy,
-      totalHoy: totalHoy._sum.total || 0,
+      totalUnidades: totalUnidades._sum.cantidad || 0,
+      facturasMes,
+      totalMes: totalMes._sum.total || 0,
       ultimasFacturas,
     });
   } catch (error) {

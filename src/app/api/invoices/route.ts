@@ -4,11 +4,11 @@ import { NextResponse } from "next/server";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { numero, tipo, fechaEmision, cliente, items } = body;
+    const { numero, tipo, fechaEmision, proveedor, items } = body;
 
-    if (!numero || !fechaEmision || !cliente || !items || items.length === 0) {
+    if (!numero || !fechaEmision || !items || items.length === 0) {
       return NextResponse.json(
-        { error: "Faltan datos obligatorios: numero, fechaEmision, cliente y al menos un producto." },
+        { error: "Faltan datos obligatorios: numero, fechaEmision y al menos un producto." },
         { status: 400 }
       );
     }
@@ -27,16 +27,15 @@ export async function POST(request: Request) {
         numero: numero.trim(),
         tipo: (tipo || "").trim(),
         fechaEmision: new Date(fechaEmision),
-        cliente: cliente.trim(),
+        proveedor: (proveedor || "").trim(),
         total,
         items: {
-          create: items.map((item: Record<string, string>) => ({
-            codigo: (item.codigo || "").trim(),
-            producto: (item.producto || "").trim(),
-            cantidad: parseFloat(item.cantidad) || 0,
-            talla: (item.talla || "").trim(),
-            valorUnit: parseFloat(item.valorUnit) || 0,
-            subtotal: parseFloat(item.subtotal) || 0,
+          create: items.map((item: Record<string, string | number>) => ({
+            codigo: String(item.codigo || "").trim(),
+            producto: String(item.producto || "").trim(),
+            cantidad: parseFloat(String(item.cantidad)) || 0,
+            valorUnit: parseFloat(String(item.valorUnit)) || 0,
+            subtotal: parseFloat(String(item.subtotal)) || 0,
           })),
         },
       },
@@ -59,23 +58,22 @@ export async function GET(request: Request) {
     const busqueda = searchParams.get("busqueda") || "";
     const desde = searchParams.get("desde") || "";
     const hasta = searchParams.get("hasta") || "";
-    const cliente = searchParams.get("cliente") || "";
+    const proveedor = searchParams.get("proveedor") || "";
     const pagina = parseInt(searchParams.get("pagina") || "1");
     const porPagina = parseInt(searchParams.get("porPagina") || "20");
 
-    // Build where clause
     const where: Record<string, unknown> = {};
 
     if (busqueda) {
       where.OR = [
         { numero: { contains: busqueda } },
-        { cliente: { contains: busqueda } },
+        { proveedor: { contains: busqueda } },
         { items: { some: { producto: { contains: busqueda } } } },
       ];
     }
 
-    if (cliente) {
-      where.cliente = { contains: cliente };
+    if (proveedor) {
+      where.proveedor = { contains: proveedor };
     }
 
     if (desde || hasta) {

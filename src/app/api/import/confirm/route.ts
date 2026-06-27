@@ -14,7 +14,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Solo importar las exitosas
     const exitosas = facturas.filter((f) => f.exito);
 
     if (exitosas.length === 0) {
@@ -26,44 +25,54 @@ export async function POST(request: Request) {
 
     let importadas = 0;
     let duplicadas = 0;
+    let erroresDetalle: string[] = [];
 
     for (const fac of exitosas) {
-      // Verificar si ya existe
-      const existente = await db.invoice.findFirst({
-        where: { numero: fac.numero },
-      });
+      try {
+        // Verificar si ya existe por número
+        const existente = await db.invoice.findFirst({
+          where: { numero: fac.numero },
+        });
 
-      if (existente) {
-        duplicadas++;
-        continue;
-      }
+        if (existente) {
+          duplicadas++;
+          continue;
+        }
 
-      await db.invoice.create({
-        data: {
-          numero: fac.numero,
-          tipo: fac.tipo,
-          fechaEmision: fac.fecha ? new Date(fac.fecha) : new Date(),
-          cliente: fac.cliente,
-          total: fac.total,
-          items: {
-            create: fac.productos.map((p) => ({
-              codigo: p.codigo,
-              producto: p.producto,
-              cantidad: p.cantidad,
-              talla: p.talla,
-              valorUnit: p.valorUnit,
-              subtotal: p.subtotal,
-            })),
+        // Validaciones de seguridad
+        if (fac.productos.length === 0) {
+          erroresDetalle.push(`${fac.numero}: sin productos`);
+          continue;
+        }
+
+        await db.invoice.create({
+          data: {
+            numero: fac.numero,
+            tipo: fac.tipo,
+            fechaEmision: fac.fecha ? new Date(fac.fecha) : new Date(),
+            proveedor: fac.proveedor,
+            total: fac.total,
+            items: {
+              create: fac.productos.map((p) => ({
+                codigo: p.codigo,
+                producto: p.producto,
+                cantidad: p.cantidad,
+                valorUnit: p.valorUnit,
+                subtotal: p.subtotal,
+              })),
+            },
           },
-        },
-      });
-      importadas++;
+        });
+        importadas++;
+      } catch (err) {
+        erroresDetalle.push(`${fac.numero}: error al guardar`);
+      }
     }
 
     return NextResponse.json({
       importadas,
       duplicadas,
-      omitidas: exitosas.length - importadas - duplicadas,
+      errores: erroresDetalle,
     });
   } catch (error) {
     console.error("Error al confirmar importación:", error);
