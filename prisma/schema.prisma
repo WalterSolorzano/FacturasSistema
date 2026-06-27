@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Invoice {
+  id           String   @id @default(cuid())
+  numero       String                // N° de factura (ej: "FC-0005", "0000-00000001")
+  tipo         String   @default("") // A, B, C, etc.
+  fechaEmision DateTime              // Fecha de la factura
+  cliente      String                // Nombre/Razón Social del cliente
+  total        Float                 // Total general de la factura
+  createdAt    DateTime @default(now())
+
+  items InvoiceItem[]
+}
+
+model InvoiceItem {
+  id         String  @id @default(cuid())
+  invoiceId  String
+  codigo     String  @default("")   // Código del producto
+  producto   String                  // Descripción/nombre del producto
+  cantidad   Float                   // Cantidad
+  talla      String  @default("")   // Talla (si aplica)
+  valorUnit  Float                   // Precio unitario
+  subtotal   Float                   // cantidad * valorUnit
+
+  invoice    Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}

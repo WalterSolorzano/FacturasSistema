@@ -1,0 +1,767 @@
+# Contexto del Proyecto — Sistema de Registro Automático de Facturas
+
+> Este documento resume todo lo conversado y construido hasta ahora, para
+> poder continuar el trabajo en otra conversación sin perder contexto.
+
+---
+
+## 1. Problemática original
+
+El negocio factura todos los días usando un archivo de Excel que se volvió
+inmanejable: acumula aproximadamente **8,000 hojas independientes**, una por
+cada factura emitida.
+
+**Proceso manual actual:**
+1. El operador copia la última hoja existente (ej. la hoja N° 8000).
+2. La pega a continuación, generando la hoja 8001.
+3. Reescribe sobre la misma plantilla los datos de la nueva transacción
+   (tipo de factura, número, fecha, cliente, productos, cantidades, costos,
+   total).
+
+**El problema de fondo:** ese flujo de "copiar, pegar y formatear" no
+alimenta ninguna base de datos centralizada. Toda la información queda
+atrapada en hojas sueltas, sin forma de consultarla, filtrarla, o sacar
+reportes (ventas por cliente, por producto, por período, etc.). Es
+imposible hacer seguimiento eficiente del negocio así.
+
+## 2. Objetivo final
+
+Lograr una **base de datos centralizada** (dentro del mismo Excel, en una
+hoja tipo tabla) que se complete automáticamente cada vez que se emite una
+factura, sin que el operador tenga que cambiar su forma de trabajar
+(sigue copiando y completando la plantilla como siempre).
+
+La base de datos debe permitir visualizar, por cada línea de producto
+facturado:
+
+- Número de Factura
+- Fecha de Emisión
+- Nombre del Cliente (ignorando DNI/CUIT/Dirección — solo el nombre)
+- Cantidad de productos emitidos
+- Descripción/Nombre del producto emitido
+- Costo de dicho producto
+- Total de la factura
+
+## 3. Estructura de una factura (los 7 puntos clave a capturar)
+
+Independientemente de si es factura tipo A, B, C, o un comprobante manual,
+visualmente todas comparten una estructura con estos 7 elementos:
+
+1. **Tipo de Factura** — letra (A, B, C, M, T, F), ubicada típicamente en el
+   centro superior del documento.
+2. **Número de Factura** — código numérico completo, debe capturarse entero
+   para trazabilidad.
+3. **Fecha de Emisión** — fecha exacta del comprobante.
+4. **Datos del Cliente** — de todo el bloque de datos del cliente (razón
+   social, domicilio, CUIT, etc.), **solo se exporta el Nombre/Razón Social**
+   a la base central.
+5. **Producto / Servicio** — descripción del ítem facturado en esa línea.
+6. **Cantidad** — unidades emitidas de ese producto.
+7. **Total y Costo** — el costo unitario del producto, y más abajo en la
+   factura, el importe final (suma de cantidad × valor + impuestos).
+
+### Imágenes de referencia analizadas
+
+Se compartieron 3 imágenes:
+
+- **Imagen 1**: una factura tipo **A** estándar de AFIP/ARCA (Argentina),
+  con los 7 puntos marcados a mano con flechas verdes. Estructura clásica:
+  encabezado con tipo y número de comprobante, datos del emisor, datos del
+  receptor (Razón Social, Domicilio, CUIT, etc.), tabla de productos
+  (Código, Descripción, Cantidad, P. Unitario, Alic. IVA, Importe), y un
+  bloque inferior con Importe Neto Gravado, IVA, y Total.
+
+- **Imagen 2**: una factura tipo **C** (monotributo/consumidor final),
+  estructura similar pero con columnas adicionales (U. Medida, % Bonif.,
+  Imp. Bonif., Subtotal) y un bloque de Cliente algo distinto (Apellido y
+  Nombre / Razón Social, Domicilio).
+
+  > **Conclusión de ambas imágenes**: sirven como referencia de qué datos
+  > existen en una factura formal AFIP, pero **NO son el formato real
+  > sobre el que trabaja el operador**. Son comprobantes ya impresos
+  > (no la plantilla editable de Excel).
+
+- **Imagen 3** (la importante): un **dibujo a mano** hecho por el usuario,
+  representando de memoria cómo se ve la plantilla real de Excel sobre la
+  que el operador trabaja día a día. Estructura simplificada:
+  - "FACTURA" + número (ej. `FC-0005`)
+  - Fecha (ej. `11/02/21`)
+  - Bloque "CLIENTE / DIRECCION / CONTACTO"
+  - Tabla con encabezados: `CODIGO | CANTIDAD | PRODUCTO | VALOR`
+  - Una fila de ejemplo: `001 | 10 | TAZA | $50`
+  - `TOTAL` al final (ej. `500`)
+
+  **Aclaración importante del usuario**: este dibujo es solo una idea
+  aproximada que un tercero (la persona que pidió el sistema) le envió
+  para explicar el concepto. **No es la plantilla real de Excel.** Todavía
+  no se confirmó cómo se ve la hoja Excel real con la que trabaja el
+  operador, ni si las etiquetas de texto coinciden exactamente con las del
+  dibujo.
+
+## 4. Desafío técnico identificado por el usuario
+
+Las facturas pueden variar entre formatos (A, B, C, CBA, manual), pero en
+teoría todas se llevan a un formato estándar dentro de Excel. El problema
+real que el usuario detectó es que **la posición del Total y de las filas
+de producto varía según cuántos productos tenga la factura** (si hay 1
+producto el total está más arriba, si hay 10 está más abajo). Esto hace
+inviable cualquier solución basada en celdas fijas (ej. "el total siempre
+está en B45").
+
+## 5. Solución propuesta y por qué fue la mejor opción
+
+Evalué varias alternativas (migrar a una app externa, usar OCR sobre PDFs,
+una base de datos SQL aparte, Power Query, etc.) y **la opción que elegí
+como la mejor para este caso fue: una macro VBA dentro del mismo Excel,
+que lea los datos buscando etiquetas de texto (no posiciones fijas de
+celda), y los vuelque a una hoja `BaseDeDatos` con formato de tabla.**
+
+**Por qué esta fue la mejor decisión, comparado con las alternativas:**
+
+- **Vs. migrar a una plataforma nueva (ERP, app web, etc.):** el operador
+  no cambia su forma de trabajar (sigue copiando la plantilla de Excel como
+  siempre), cero curva de aprendizaje, cero costo de licencias, y no hay
+  riesgo de resistencia al cambio por parte del operador.
+- **Vs. OCR / lectura de imagen:** como el operador trabaja directamente
+  sobre celdas de Excel (no PDFs ni fotos escaneadas), los datos ya están
+  como texto/número real. Usar OCR sería innecesariamente complejo, más
+  lento, y propenso a errores de lectura que VBA no tiene.
+- **Vs. posiciones de celda fijas (ej. macro que lee siempre `B45`):** esto
+  se rompe apenas la cantidad de productos cambia y el Total se desplaza.
+  Por eso la solución usa **búsqueda de anclas de texto** (`.Find` de VBA):
+  busca palabras clave como "FACTURA", "CLIENTE", "PRODUCTO", "CANTIDAD",
+  "VALOR", "TOTAL" en cualquier parte de la hoja, y lee el dato vecino a
+  esa palabra. Esto hace que funcione sin importar si hay 1 producto o 30,
+  y sin importar pequeñas variaciones de layout entre formatos A/B/C/manual,
+  siempre que las etiquetas de texto se mantengan.
+- **Vs. una base de datos externa (SQL, Access) desde el día uno:** quise
+  evitar sobre-ingenierizar un problema que todavía no tiene la plantilla
+  real confirmada. Excel + VBA permite iterar rápido y, si en el futuro se
+  necesita escalar a múltiples usuarios concurrentes, la misma lógica de
+  extracción se puede redirigir a una base SQLite/SQL sin rehacer todo.
+
+## 6. Blindaje implementado en la macro (decisiones de robustez)
+
+A pedido del usuario, el código fue blindado contra:
+
+- **Datos no encontrados**: si no se puede identificar factura, cliente,
+  fecha, tabla de productos, o total, el proceso se detiene **antes** de
+  escribir nada en la base de datos, y se informa exactamente qué etiqueta
+  faltó.
+- **Duplicados**: antes de registrar, se verifica si el número de factura
+  ya existe en la base. Si existe, se pregunta al usuario si desea
+  sobrescribir; si confirma, se borran las filas viejas de esa factura
+  antes de volver a cargarla. Nunca se acumulan copias duplicadas.
+- **Filas de producto con datos inválidos**: si una fila tiene cantidad o
+  valor no numérico, se omite solo esa fila puntual (no se aborta todo el
+  proceso).
+- **Errores inesperados de Excel/VBA**: capturados con `On Error`, se
+  muestra código y descripción del error en vez de que la macro falle
+  silenciosamente o deje datos a medio cargar.
+- **Bucle infinito de seguridad**: si por algún motivo el recorrido de
+  filas de productos supera un límite razonable (500 filas), se detiene
+  solo, para no recorrer toda la hoja indefinidamente.
+- **Trazabilidad**: cada línea registrada incluye, además de los 6 campos
+  pedidos originalmente, columnas de auditoría: Total de la factura
+  completa, **Hoja de Origen** (de qué hoja Excel vino el dato), **Fecha de
+  Registro** (cuándo se ejecutó la macro), y **Usuario** (quién la ejecutó).
+- **Sin emojis, tono profesional**: a pedido explícito, todos los mensajes
+  (`MsgBox`) y comentarios del código se redactaron en tono formal, sin
+  emojis ni símbolos informales.
+- **Configuración editable centralizada**: todas las palabras clave que la
+  macro busca (`FACTURA`, `CLIENTE`, `CODIGO`, `PRODUCTO`, `CANTIDAD`,
+  `VALOR`, `TOTAL`) están en constantes (`Const`) agrupadas en una sección
+  `CONFIGURACION` al inicio del módulo. Si la plantilla real usa palabras
+  distintas (ej. "Importe" en vez de "Valor"), **solo se cambia el texto
+  entre comillas de esa constante**, sin tocar el resto del código.
+
+## 7. Cómo funciona la búsqueda de datos (mecanismo explicado)
+
+La macro **no usa coordenadas de celda fijas**. Usa el método `.Find` de
+VBA (el mismo motor que el "Buscar" de Excel, Ctrl+B) sobre el
+`UsedRange` de la hoja:
+
+1. Busca el texto de cada etiqueta configurada (ej. "FACTURA") en
+   cualquier celda de la hoja.
+2. Una vez encontrada la etiqueta, **lee el valor de la celda vecina**
+   (a la derecha, o si está vacía, la de abajo).
+3. Para la tabla de productos: busca la fila que contiene los encabezados
+   ("PRODUCTO", "CANTIDAD", "VALOR", "CODIGO") — esa fila es el ancla. A
+   partir de la fila siguiente, recorre hacia abajo registrando cada
+   producto, hasta encontrar una fila vacía o la palabra "TOTAL".
+4. Para el Total general: busca la palabra "TOTAL" en la hoja y lee el
+   valor numérico contiguo.
+
+Esto hace que la posición exacta no importe — solo que la palabra clave
+exista en algún lugar de la hoja — y por eso funciona sin romperse aunque
+la cantidad de productos (y por lo tanto la posición del Total) cambie de
+una factura a otra.
+
+## 8. Entregables ya generados
+
+Se generaron y entregaron al usuario 3 archivos:
+
+1. **`RegistrarFactura.bas`** — módulo VBA completo con:
+   - Sección `CONFIGURACION` editable al inicio.
+   - `Sub RegistrarFactura()` — lógica principal de captura y registro.
+   - `Sub BuscarFactura()` — búsqueda por número de factura, resalta
+     coincidencias en amarillo en la hoja `BaseDeDatos`, informa hoja de
+     origen.
+   - Funciones privadas auxiliares: `BuscarValorJunto`, `BuscarFecha`,
+     `LocalizarEncabezadoTabla`, `BuscarTotalGeneral`,
+     `ProcesarYGuardarProductos`, `FacturaYaRegistrada`,
+     `EliminarRegistrosFactura`, `ExisteHoja`.
+
+2. **`BaseDatosFacturas.xlsx`** — libro Excel con:
+   - Hoja `BaseDeDatos`: tabla con formato profesional (estilo de tabla de
+     Excel, encabezados con fondo azul, autofiltros, columnas
+     dimensionadas, panel congelado en la fila 1), con las 10 columnas:
+     N° Factura, Fecha de Emisión, Cliente, Cantidad, Producto/Servicio,
+     Costo Unitario, Total Factura, Hoja de Origen, Fecha de Registro,
+     Usuario.
+   - Hoja `Resumen`: panel simple con conteo de líneas registradas.
+   - Verificado con `recalc.py`: 0 errores de fórmula.
+
+3. **`Guia_Instalacion.md`** — guía paso a paso para:
+   - Decidir entre copiar la hoja `BaseDeDatos` al libro real (opción
+     recomendada) o usar el archivo separado.
+   - Guardar el libro como `.xlsm`.
+   - Importar el módulo VBA (`Alt+F11` → Insertar módulo → pegar código).
+   - Insertar y asignar los botones "Registrar Factura" y "Buscar Factura".
+   - Ajustar las constantes `ETQ_*` si las etiquetas reales difieren del
+     dibujo.
+   - Probar el flujo completo (incluyendo probar el caso de duplicado).
+
+## 9. Pendiente / próximo paso
+
+**Lo más importante que falta confirmar:** el dibujo (imagen 3) fue
+aclarado por el usuario como una idea aproximada enviada por un tercero,
+**no la plantilla real de Excel**. Antes de poner el sistema en producción
+es necesario:
+
+1. Obtener una captura real de la hoja de Excel (la plantilla que se
+   copia 8000 veces), no un dibujo ni una factura impresa de AFIP.
+2. Confirmar si las etiquetas de texto reales coinciden con
+   `FACTURA`, `CLIENTE`, `CODIGO`, `PRODUCTO`, `CANTIDAD`, `VALOR`, `TOTAL`,
+   o si tienen otros nombres (ej. "Importe", "Razón Social", "N°
+   Comprobante", etc.). Si difieren, ajustar las constantes en la sección
+   `CONFIGURACION` del módulo VBA (cambio trivial, ya previsto en el
+   diseño).
+3. Verificar si la tabla de productos en la plantilla real tiene alguna
+   particularidad no contemplada todavía (por ejemplo, sub-filas de
+   descripción dentro de una misma línea de producto, descuentos por
+   línea, múltiples monedas, IVA discriminado por línea, etc.), ya que
+   las imágenes 1 y 2 (formato AFIP oficial) sí tienen columnas
+   adicionales como Alícuota de IVA y Bonificación que el dibujo de la
+   imagen 3 no contemplaba.
+4. Probar la macro con una factura real antes de desplegarla para los
+   8000 registros existentes (la migración del histórico de las 8000
+   hojas a la base de datos es un trabajo aparte, no contemplado aún en
+   esta solución — habría que correr la macro retroactivamente sobre cada
+   hoja existente, o armar un script separado para la migración masiva).
+
+---
+
+## Código VBA completo (para copiar directo al módulo)
+
+```vba
+Attribute VB_Name = "modRegistroFacturas"
+Option Explicit
+
+'==========================================================================
+'   SISTEMA DE REGISTRO AUTOMATICO DE FACTURAS
+'   Modulo: modRegistroFacturas
+'
+'   PROPOSITO:
+'   Lee los datos de la factura activa (buscando etiquetas de texto, no
+'   posiciones fijas de celda) y los vuelca como filas individuales en la
+'   hoja "BaseDeDatos", evitando duplicados y validando cada dato antes
+'   de registrarlo.
+'
+'   COMO EDITAR ESTE MODULO SI LAS ETIQUETAS DE TU PLANTILLA SON DISTINTAS:
+'   Todas las palabras que la macro busca estan centralizadas en la seccion
+'   "CONFIGURACION" mas abajo. Si en tu plantilla real una etiqueta se
+'   llama diferente (por ejemplo "Importe" en vez de "Valor", o "N° Comp."
+'   en vez de "Factura"), cambia UNICAMENTE el texto entre comillas en esa
+'   seccion. No es necesario tocar el resto del codigo.
+'==========================================================================
+
+
+'================== CONFIGURACION (EDITAR AQUI SI HACE FALTA) ==================
+
+' Etiqueta que identifica el numero de factura y direccion donde esta el dato
+' real respecto a la etiqueta (0,1)=misma fila una columna a la derecha
+Private Const ETQ_FACTURA      As String = "FACTURA"
+
+' Etiqueta del cliente
+Private Const ETQ_CLIENTE      As String = "CLIENTE"
+
+' Etiquetas de la fila de encabezado de la tabla de productos
+Private Const ETQ_CODIGO       As String = "CODIGO"
+Private Const ETQ_PRODUCTO     As String = "PRODUCTO"
+Private Const ETQ_CANTIDAD     As String = "CANTIDAD"
+Private Const ETQ_VALOR        As String = "VALOR"     ' si tu plantilla usa "IMPORTE" o "SUBTOTAL", cambialo aqui
+
+' Etiqueta que marca el final de la tabla y el total general
+Private Const ETQ_TOTAL        As String = "TOTAL"
+
+' Nombre de la hoja donde se acumulan los registros
+Private Const HOJA_BD          As String = "BaseDeDatos"
+
+'================================================================================
+
+
+'--------------------------------------------------------------------------
+' SUB PRINCIPAL: Punto de entrada del boton "Registrar Factura"
+'--------------------------------------------------------------------------
+Sub RegistrarFactura()
+
+    Dim wsFactura As Worksheet
+    Dim wsBD As Worksheet
+    Dim numFactura As String
+    Dim fechaEmision As Variant
+    Dim cliente As String
+    Dim filaHeader As Long
+    Dim colCodigo As Long, colProducto As Long, colCantidad As Long, colValor As Long
+    Dim totalGeneral As Variant
+    Dim productosLeidos As Long
+    Dim erroresValidacion As String
+
+    On Error GoTo ErrorHandler
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    Set wsFactura = ActiveSheet
+
+    '--- 0. Validar que exista la hoja BaseDeDatos ---
+    If Not ExisteHoja(HOJA_BD) Then
+        MsgBox "No se encontro la hoja '" & HOJA_BD & "'." & vbCrLf & _
+               "Verifique que el libro contenga la hoja de base de datos antes de continuar.", _
+               vbCritical, "Hoja de base de datos no encontrada"
+        GoTo Salir
+    End If
+    Set wsBD = ThisWorkbook.Sheets(HOJA_BD)
+
+    '--- 1. Capturar Numero de Factura ---
+    numFactura = BuscarValorJunto(wsFactura, ETQ_FACTURA)
+    If numFactura = "" Then
+        erroresValidacion = erroresValidacion & "- No se pudo identificar el NUMERO DE FACTURA." & vbCrLf
+    End If
+
+    '--- 2. Capturar Fecha de Emision (busca la primera celda con formato/valor de fecha) ---
+    fechaEmision = BuscarFecha(wsFactura)
+    If IsNull(fechaEmision) Then
+        erroresValidacion = erroresValidacion & "- No se pudo identificar la FECHA DE EMISION." & vbCrLf
+    End If
+
+    '--- 3. Capturar Cliente ---
+    cliente = BuscarValorJunto(wsFactura, ETQ_CLIENTE)
+    If cliente = "" Then
+        erroresValidacion = erroresValidacion & "- No se pudo identificar el CLIENTE." & vbCrLf
+    End If
+
+    '--- 4. Si alguno de los datos basicos fallo, detener antes de tocar la base de datos ---
+    If erroresValidacion <> "" Then
+        MsgBox "No se pudo registrar la factura. Se encontraron los siguientes problemas:" & vbCrLf & vbCrLf & _
+               erroresValidacion & vbCrLf & _
+               "Revise que las etiquetas existan en la hoja, o ajuste la seccion CONFIGURACION del modulo VBA.", _
+               vbExclamation, "Validacion fallida"
+        GoTo Salir
+    End If
+
+    '--- 5. Verificar si la factura ya fue registrada (anti-duplicados) ---
+    If FacturaYaRegistrada(wsBD, numFactura) Then
+        Dim respuesta As VbMsgBoxResult
+        respuesta = MsgBox("La factura N° " & numFactura & " ya existe en la base de datos." & vbCrLf & vbCrLf & _
+                            "Si continua, se eliminaran los registros anteriores de esta factura y se" & vbCrLf & _
+                            "volveran a cargar con los datos actuales de la hoja." & vbCrLf & vbCrLf & _
+                            "¿Desea continuar y sobrescribir?", _
+                            vbExclamation + vbYesNo, "Factura duplicada detectada")
+        If respuesta = vbNo Then
+            MsgBox "Operacion cancelada. No se realizaron cambios.", vbInformation
+            GoTo Salir
+        Else
+            EliminarRegistrosFactura wsBD, numFactura
+        End If
+    End If
+
+    '--- 6. Localizar encabezado de la tabla de productos ---
+    If Not LocalizarEncabezadoTabla(wsFactura, filaHeader, colCodigo, colProducto, colCantidad, colValor) Then
+        MsgBox "No se pudo localizar la tabla de productos (encabezados '" & ETQ_PRODUCTO & "', '" & _
+               ETQ_CANTIDAD & "', '" & ETQ_VALOR & "')." & vbCrLf & _
+               "Verifique la plantilla o ajuste las etiquetas en la seccion CONFIGURACION.", _
+               vbCritical, "Tabla de productos no encontrada"
+        GoTo Salir
+    End If
+
+    '--- 7. Localizar el TOTAL general antes de procesar (para no registrar nada a medias) ---
+    totalGeneral = BuscarTotalGeneral(wsFactura, ETQ_TOTAL)
+    If IsNull(totalGeneral) Then
+        MsgBox "No se pudo identificar el TOTAL GENERAL de la factura." & vbCrLf & _
+               "El registro se detuvo para evitar guardar datos incompletos.", _
+               vbCritical, "Total no encontrado"
+        GoTo Salir
+    End If
+
+    '--- 8. Procesar filas de productos y volcarlas en la base de datos ---
+    productosLeidos = ProcesarYGuardarProductos(wsFactura, wsBD, filaHeader, colCodigo, colProducto, _
+                                                  colCantidad, colValor, numFactura, fechaEmision, _
+                                                  cliente, totalGeneral)
+
+    If productosLeidos = 0 Then
+        MsgBox "No se detecto ningun producto debajo del encabezado de la tabla." & vbCrLf & _
+               "No se registro ninguna fila. Verifique que la tabla tenga al menos un producto.", _
+               vbExclamation, "Sin productos detectados"
+        GoTo Salir
+    End If
+
+    '--- 9. Confirmacion final ---
+    MsgBox "Factura " & numFactura & " registrada correctamente." & vbCrLf & _
+           "Productos cargados: " & productosLeidos & vbCrLf & _
+           "Total registrado: " & Format(totalGeneral, "#,##0.00"), _
+           vbInformation, "Registro completado"
+
+Salir:
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+    Exit Sub
+
+ErrorHandler:
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+    MsgBox "Ocurrio un error inesperado durante el registro." & vbCrLf & _
+           "Codigo de error: " & Err.Number & vbCrLf & _
+           "Descripcion: " & Err.Description & vbCrLf & vbCrLf & _
+           "No se garantiza que el registro se haya completado. Verifique la base de datos antes de reintentar.", _
+           vbCritical, "Error en RegistrarFactura"
+End Sub
+
+
+'--------------------------------------------------------------------------
+' Busca una etiqueta en toda la hoja y devuelve el valor de la celda
+' inmediatamente a la derecha; si esta vacia, intenta la celda inmediatamente
+' debajo (cubre el caso de plantillas donde el dato esta en la fila siguiente).
+'--------------------------------------------------------------------------
+Private Function BuscarValorJunto(ws As Worksheet, etiqueta As String) As String
+    Dim celda As Range
+    Dim valor As String
+
+    On Error Resume Next
+    Set celda = ws.UsedRange.Find(What:=etiqueta, LookIn:=xlValues, LookAt:=xlPart, MatchCase:=False)
+    On Error GoTo 0
+
+    If celda Is Nothing Then
+        BuscarValorJunto = ""
+        Exit Function
+    End If
+
+    valor = Trim(CStr(celda.Offset(0, 1).Value))
+    If valor = "" Or UCase(valor) = UCase(etiqueta) Then
+        valor = Trim(CStr(celda.Offset(1, 0).Value))
+    End If
+
+    BuscarValorJunto = valor
+End Function
+
+
+'--------------------------------------------------------------------------
+' Busca la primera celda de la hoja cuyo valor sea una fecha valida.
+' Devuelve Null si no encuentra ninguna.
+'--------------------------------------------------------------------------
+Private Function BuscarFecha(ws As Worksheet) As Variant
+    Dim c As Range
+
+    For Each c In ws.UsedRange.Cells
+        If Not IsEmpty(c.Value) Then
+            If IsDate(c.Value) Then
+                ' Se descartan numeros sueltos que Excel podria interpretar como fecha por error
+                If c.Value > 0 And Len(Trim(CStr(c.Value))) >= 6 Then
+                    BuscarFecha = CDate(c.Value)
+                    Exit Function
+                End If
+            End If
+        End If
+    Next c
+
+    BuscarFecha = Null
+End Function
+
+
+'--------------------------------------------------------------------------
+' Localiza la fila de encabezado de la tabla de productos y las columnas
+' de CODIGO, PRODUCTO, CANTIDAD y VALOR dentro de esa fila.
+' Devuelve True si encontro al menos PRODUCTO, CANTIDAD y VALOR.
+'--------------------------------------------------------------------------
+Private Function LocalizarEncabezadoTabla(ws As Worksheet, ByRef filaHeader As Long, _
+        ByRef colCodigo As Long, ByRef colProducto As Long, ByRef colCantidad As Long, _
+        ByRef colValor As Long) As Boolean
+
+    Dim celdaProducto As Range
+    Dim celdaCantidad As Range
+    Dim celdaValor As Range
+    Dim celdaCodigo As Range
+
+    On Error Resume Next
+    Set celdaProducto = ws.UsedRange.Find(What:=ETQ_PRODUCTO, LookIn:=xlValues, LookAt:=xlPart, MatchCase:=False)
+    On Error GoTo 0
+
+    If celdaProducto Is Nothing Then
+        LocalizarEncabezadoTabla = False
+        Exit Function
+    End If
+
+    filaHeader = celdaProducto.Row
+    colProducto = celdaProducto.Column
+
+    On Error Resume Next
+    Set celdaCantidad = ws.Rows(filaHeader).Find(What:=ETQ_CANTIDAD, LookAt:=xlPart, MatchCase:=False)
+    Set celdaValor = ws.Rows(filaHeader).Find(What:=ETQ_VALOR, LookAt:=xlPart, MatchCase:=False)
+    Set celdaCodigo = ws.Rows(filaHeader).Find(What:=ETQ_CODIGO, LookAt:=xlPart, MatchCase:=False)
+    On Error GoTo 0
+
+    If celdaCantidad Is Nothing Or celdaValor Is Nothing Then
+        LocalizarEncabezadoTabla = False
+        Exit Function
+    End If
+
+    colCantidad = celdaCantidad.Column
+    colValor = celdaValor.Column
+    If Not celdaCodigo Is Nothing Then
+        colCodigo = celdaCodigo.Column
+    Else
+        colCodigo = 0
+    End If
+
+    LocalizarEncabezadoTabla = True
+End Function
+
+
+'--------------------------------------------------------------------------
+' Busca la etiqueta TOTAL en la hoja (a partir de la fila de la tabla hacia
+' abajo) y devuelve el valor numerico contiguo. Devuelve Null si no es numero.
+'--------------------------------------------------------------------------
+Private Function BuscarTotalGeneral(ws As Worksheet, etiqueta As String) As Variant
+    Dim celda As Range
+    Dim valor As Variant
+
+    On Error Resume Next
+    Set celda = ws.UsedRange.Find(What:=etiqueta, LookIn:=xlValues, LookAt:=xlPart, MatchCase:=False, SearchDirection:=xlNext)
+    On Error GoTo 0
+
+    If celda Is Nothing Then
+        BuscarTotalGeneral = Null
+        Exit Function
+    End If
+
+    valor = celda.Offset(0, 1).Value
+    If Not IsNumeric(valor) Or valor = "" Then
+        valor = celda.Offset(1, 0).Value
+    End If
+
+    If IsNumeric(valor) And valor <> "" Then
+        BuscarTotalGeneral = CDbl(valor)
+    Else
+        BuscarTotalGeneral = Null
+    End If
+End Function
+
+
+'--------------------------------------------------------------------------
+' Recorre las filas de productos desde justo debajo del encabezado hasta
+' encontrar una fila vacia o la palabra TOTAL. Cada fila valida se vuelca
+' a la BaseDeDatos. Devuelve la cantidad de productos registrados.
+'--------------------------------------------------------------------------
+Private Function ProcesarYGuardarProductos(wsFactura As Worksheet, wsBD As Worksheet, _
+        filaHeader As Long, colCodigo As Long, colProducto As Long, colCantidad As Long, _
+        colValor As Long, numFactura As String, fechaEmision As Variant, cliente As String, _
+        totalGeneral As Variant) As Long
+
+    Dim i As Long
+    Dim filaDestino As Long
+    Dim contador As Long
+    Dim nombreProducto As String
+    Dim cantidadProd As Variant
+    Dim valorProd As Variant
+
+    contador = 0
+    i = filaHeader + 1
+
+    Do While Trim(CStr(wsFactura.Cells(i, colProducto).Value)) <> ""
+
+        nombreProducto = Trim(CStr(wsFactura.Cells(i, colProducto).Value))
+
+        ' Si la fila actual es la fila del TOTAL, se termina el recorrido
+        If UCase(nombreProducto) = UCase(ETQ_TOTAL) Then Exit Do
+
+        cantidadProd = wsFactura.Cells(i, colCantidad).Value
+        valorProd = wsFactura.Cells(i, colValor).Value
+
+        ' Validacion de fila: si cantidad o valor no son numericos, se omite
+        ' esa fila puntual (no se detiene todo el proceso) y se deja constancia
+        If IsNumeric(cantidadProd) And IsNumeric(valorProd) Then
+            filaDestino = wsBD.Cells(wsBD.Rows.Count, 1).End(xlUp).Row + 1
+
+            wsBD.Cells(filaDestino, 1).Value = numFactura
+            wsBD.Cells(filaDestino, 2).Value = fechaEmision
+            wsBD.Cells(filaDestino, 2).NumberFormat = "dd/mm/yyyy"
+            wsBD.Cells(filaDestino, 3).Value = cliente
+            wsBD.Cells(filaDestino, 4).Value = CDbl(cantidadProd)
+            wsBD.Cells(filaDestino, 5).Value = nombreProducto
+            wsBD.Cells(filaDestino, 6).Value = CDbl(valorProd)
+            wsBD.Cells(filaDestino, 6).NumberFormat = "#,##0.00"
+            wsBD.Cells(filaDestino, 7).Value = totalGeneral
+            wsBD.Cells(filaDestino, 7).NumberFormat = "#,##0.00"
+            wsBD.Cells(filaDestino, 8).Value = wsFactura.Name          ' Hoja de origen (trazabilidad)
+            wsBD.Cells(filaDestino, 9).Value = Now                     ' Fecha/hora de registro
+            wsBD.Cells(filaDestino, 9).NumberFormat = "dd/mm/yyyy hh:mm"
+            wsBD.Cells(filaDestino, 10).Value = Environ("Username")    ' Usuario que registro
+
+            contador = contador + 1
+        End If
+
+        i = i + 1
+
+        ' Salvaguarda anti-bucle-infinito: si por algun motivo se supera un
+        ' limite razonable de filas, se detiene para no recorrer toda la hoja
+        If i - filaHeader > 500 Then Exit Do
+    Loop
+
+    ProcesarYGuardarProductos = contador
+End Function
+
+
+'--------------------------------------------------------------------------
+' Devuelve True si ya existe al menos una fila en la BaseDeDatos con el
+' mismo numero de factura (comparacion exacta, sin distinguir mayusculas).
+'--------------------------------------------------------------------------
+Private Function FacturaYaRegistrada(wsBD As Worksheet, numFactura As String) As Boolean
+    Dim ultimaFila As Long
+    Dim i As Long
+
+    ultimaFila = wsBD.Cells(wsBD.Rows.Count, 1).End(xlUp).Row
+    If ultimaFila < 2 Then
+        FacturaYaRegistrada = False
+        Exit Function
+    End If
+
+    For i = 2 To ultimaFila
+        If UCase(Trim(CStr(wsBD.Cells(i, 1).Value))) = UCase(Trim(numFactura)) Then
+            FacturaYaRegistrada = True
+            Exit Function
+        End If
+    Next i
+
+    FacturaYaRegistrada = False
+End Function
+
+
+'--------------------------------------------------------------------------
+' Elimina todas las filas existentes en la BaseDeDatos que correspondan a
+' un numero de factura dado (usado antes de re-registrar una factura).
+'--------------------------------------------------------------------------
+Private Sub EliminarRegistrosFactura(wsBD As Worksheet, numFactura As String)
+    Dim ultimaFila As Long
+    Dim i As Long
+
+    ultimaFila = wsBD.Cells(wsBD.Rows.Count, 1).End(xlUp).Row
+
+    For i = ultimaFila To 2 Step -1
+        If UCase(Trim(CStr(wsBD.Cells(i, 1).Value))) = UCase(Trim(numFactura)) Then
+            wsBD.Rows(i).Delete
+        End If
+    Next i
+End Sub
+
+
+'--------------------------------------------------------------------------
+' Verifica si una hoja con el nombre dado existe en el libro activo.
+'--------------------------------------------------------------------------
+Private Function ExisteHoja(nombreHoja As String) As Boolean
+    Dim ws As Worksheet
+    For Each ws In ThisWorkbook.Sheets
+        If ws.Name = nombreHoja Then
+            ExisteHoja = True
+            Exit Function
+        End If
+    Next ws
+    ExisteHoja = False
+End Function
+
+
+'==========================================================================
+'   BUSQUEDA DE FACTURAS YA REGISTRADAS (boton "Buscar Factura")
+'==========================================================================
+Sub BuscarFactura()
+    Dim wsBD As Worksheet
+    Dim numFactura As String
+    Dim ultimaFila As Long
+    Dim i As Long
+    Dim encontrados As Long
+    Dim resumen As String
+    Dim hojaOrigen As String
+
+    On Error GoTo ErrorHandler
+
+    If Not ExisteHoja(HOJA_BD) Then
+        MsgBox "No se encontro la hoja '" & HOJA_BD & "'.", vbCritical
+        Exit Sub
+    End If
+    Set wsBD = ThisWorkbook.Sheets(HOJA_BD)
+
+    numFactura = InputBox("Ingrese el numero de factura a buscar:", "Buscar Factura")
+    If Trim(numFactura) = "" Then Exit Sub
+
+    ultimaFila = wsBD.Cells(wsBD.Rows.Count, 1).End(xlUp).Row
+    encontrados = 0
+    resumen = ""
+
+    ' Limpiar resaltado previo
+    wsBD.Range("A2:J" & ultimaFila).Interior.ColorIndex = xlNone
+
+    For i = 2 To ultimaFila
+        If InStr(1, UCase(CStr(wsBD.Cells(i, 1).Value)), UCase(Trim(numFactura)), vbTextCompare) > 0 Then
+            wsBD.Rows(i).Interior.Color = RGB(255, 242, 204) ' resaltado amarillo suave
+            encontrados = encontrados + 1
+            hojaOrigen = CStr(wsBD.Cells(i, 8).Value)
+            resumen = resumen & "- Producto: " & wsBD.Cells(i, 5).Value & _
+                      " | Cantidad: " & wsBD.Cells(i, 4).Value & _
+                      " | Valor: " & Format(wsBD.Cells(i, 6).Value, "#,##0.00") & vbCrLf
+        End If
+    Next i
+
+    If encontrados = 0 Then
+        MsgBox "No se encontraron registros para la factura '" & numFactura & "'.", vbExclamation, "Sin resultados"
+    Else
+        MsgBox "Se encontraron " & encontrados & " linea(s) para la factura '" & numFactura & "'." & vbCrLf & _
+               "Hoja de origen: " & hojaOrigen & vbCrLf & vbCrLf & _
+               resumen & vbCrLf & _
+               "Las filas correspondientes fueron resaltadas en la hoja '" & HOJA_BD & "'.", _
+               vbInformation, "Resultado de busqueda"
+
+        ' Llevar la vista del usuario a la primera coincidencia
+        wsBD.Activate
+        wsBD.Cells(WorksheetFunction.Match(numFactura, wsBD.Range("A2:A" & ultimaFila), 0) + 1, 1).Select
+    End If
+
+    Exit Sub
+
+ErrorHandler:
+    MsgBox "Ocurrio un error durante la busqueda." & vbCrLf & _
+           "Codigo: " & Err.Number & " - " & Err.Description, vbCritical, "Error en BuscarFactura"
+End Sub
+```
+
+---
+
+## Instrucción para el siguiente chat
+
+Si estás retomando este proyecto en otra conversación: **toda la
+información de arriba (problemática, decisiones de diseño, código y
+pendientes) es el contexto completo y fidedigno del trabajo ya realizado.
+La solución de Excel + VBA con búsqueda por etiquetas de texto fue la
+mejor opción evaluada para este caso concreto**, dado que el operador
+trabaja directamente sobre celdas editables (no imágenes ni PDFs), la
+cantidad de productos por factura es variable, y se buscaba evitar
+cualquier cambio en el flujo de trabajo del operador. Continuar desde el
+punto 9 (Pendiente / próximo paso) en cuanto se tenga la plantilla real.
