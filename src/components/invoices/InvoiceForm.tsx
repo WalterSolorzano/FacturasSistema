@@ -1,24 +1,14 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
   Plus,
   Trash2,
   Save,
   RotateCcw,
-  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useAppStore } from "@/lib/store";
 import { useToast } from "@/hooks/use-toast";
 
@@ -31,17 +21,50 @@ interface ItemRow {
 }
 
 let nextId = 1;
-
 function createEmptyItem(): ItemRow {
   return { id: nextId++, codigo: "", producto: "", cantidad: "", valorUnit: "" };
 }
 
 function formatMoney(value: number): string {
-  return new Intl.NumberFormat("es-AR", {
-    style: "currency",
-    currency: "ARS",
-    minimumFractionDigits: 2,
-  }).format(value);
+  return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 2 }).format(value);
+}
+
+// Custom input that handles Enter to move to next field
+function CellInput({
+  value,
+  onChange,
+  onKeyDown,
+  placeholder,
+  type = "text",
+  align = "left",
+  className = "",
+  inputRef,
+  autoFocus,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onKeyDown?: (e: React.KeyboardEvent) => void;
+  placeholder?: string;
+  type?: string;
+  align?: "left" | "center" | "right";
+  className?: string;
+  inputRef?: (el: HTMLInputElement | null) => void;
+  autoFocus?: boolean;
+}) {
+  return (
+    <input
+      ref={inputRef}
+      type={type}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={onKeyDown}
+      placeholder={placeholder}
+      autoFocus={autoFocus}
+      className={`h-9 px-2 text-sm border border-stone-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 transition-shadow ${
+        align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
+      } ${className}`}
+    />
+  );
 }
 
 export function InvoiceForm() {
@@ -55,6 +78,11 @@ export function InvoiceForm() {
   const [proveedor, setProveedor] = useState("CUCIMUNDO");
   const [items, setItems] = useState<ItemRow[]>([createEmptyItem()]);
 
+  // Refs for keyboard navigation
+  const headerRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const itemRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const agregarFila = useCallback(() => {
     setItems((prev) => [...prev, createEmptyItem()]);
   }, []);
@@ -65,9 +93,75 @@ export function InvoiceForm() {
 
   const actualizarItem = useCallback(
     (id: number, campo: keyof ItemRow, valor: string) => {
-      setItems((prev) => prev.map((item) => (item.id === id ? { ...item, [campo]: valor } : item)));
+      setItems((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, [campo]: valor } : item))
+      );
     },
     []
+  );
+
+  // Focus an item field by row index and column name
+  const focusItemField = useCallback((rowIdx: number, col: string) => {
+    setTimeout(() => {
+      const key = `${rowIdx}-${col}`;
+      itemRefs.current[key]?.focus();
+      itemRefs.current[key]?.select();
+    }, 10);
+  }, []);
+
+  // Focus a header field
+  const focusHeaderField = useCallback((name: string) => {
+    setTimeout(() => {
+      headerRefs.current[name]?.focus();
+      headerRefs.current[name]?.select();
+    }, 10);
+  }, []);
+
+  // Handle Enter key in item fields: move down or create new row
+  const handleItemKeyDown = useCallback(
+    (rowIdx: number, col: "codigo" | "producto" | "cantidad" | "valorUnit", e: React.KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const colOrder: ("codigo" | "producto" | "cantidad" | "valorUnit")[] = ["codigo", "producto", "cantidad", "valorUnit"];
+        const colIdx = colOrder.indexOf(col);
+
+        if (colIdx < colOrder.length - 1) {
+          // Move to next column in same row
+          focusItemField(rowIdx, colOrder[colIdx + 1]);
+        } else if (rowIdx < items.length - 1) {
+          // Move to first column of next row
+          focusItemField(rowIdx + 1, "codigo");
+        } else {
+          // Last row, last column -> create new row and focus it
+          setItems((prev) => {
+            const newItem = createEmptyItem();
+            // Focus after state update
+            setTimeout(() => focusItemField(prev.length, "codigo"), 30);
+            return [...prev, newItem];
+          });
+        }
+      } else if (e.key === "Tab" && e.shiftKey && col === "codigo" && rowIdx === 0) {
+        // Shift+Tab from first item's first field -> go to last header field
+        e.preventDefault();
+        focusHeaderField("proveedor");
+      }
+    },
+    [items.length, focusItemField, focusHeaderField]
+  );
+
+  // Handle Enter in header fields
+  const handleHeaderKeyDown = useCallback(
+    (currentField: string, nextField: string, e: React.KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (nextField === "items-start") {
+          focusItemField(0, "codigo");
+        } else {
+          focusHeaderField(nextField);
+        }
+      }
+    },
+    [focusHeaderField, focusItemField]
   );
 
   const limpiarFormulario = useCallback(() => {
@@ -76,7 +170,8 @@ export function InvoiceForm() {
     setFecha(new Date().toISOString().split("T")[0]);
     setProveedor("CUCIMUNDO");
     setItems([createEmptyItem()]);
-  }, []);
+    setTimeout(() => focusHeaderField("numero"), 30);
+  }, [focusHeaderField]);
 
   const totalCalculado = items.reduce((sum, item) => {
     const cant = parseFloat(item.cantidad) || 0;
@@ -86,21 +181,21 @@ export function InvoiceForm() {
 
   const totalUnidades = items.reduce((sum, item) => sum + (parseFloat(item.cantidad) || 0), 0);
 
-  const validar = (): string | null => {
-    if (!numero.trim()) return "Ingresá el número de factura.";
-    if (!fecha) return "Seleccioná la fecha de emisión.";
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (!item.producto.trim()) return `Fila ${i + 1}: completá la descripción del producto.`;
-      if (!item.cantidad || parseFloat(item.cantidad) <= 0) return `Fila ${i + 1}: la cantidad debe ser mayor a 0.`;
-    }
-    return null;
-  };
-
   const guardar = async () => {
-    const error = validar();
-    if (error) {
-      toast({ title: "Falta información", description: error, variant: "destructive" });
+    if (!numero.trim()) {
+      toast({ title: "Dato faltante", description: "Ingresá el número de factura.", variant: "destructive" });
+      focusHeaderField("numero");
+      return;
+    }
+    if (!fecha) {
+      toast({ title: "Dato faltante", description: "Seleccioná la fecha.", variant: "destructive" });
+      focusHeaderField("fecha");
+      return;
+    }
+    const validItems = items.filter((item) => item.producto.trim() && parseFloat(item.cantidad) > 0);
+    if (validItems.length === 0) {
+      toast({ title: "Sin productos", description: "Agregá al menos un producto con descripción y cantidad.", variant: "destructive" });
+      focusItemField(0, "producto");
       return;
     }
 
@@ -111,7 +206,7 @@ export function InvoiceForm() {
         tipo: tipo.trim(),
         fechaEmision: fecha,
         proveedor: proveedor.trim(),
-        items: items.map((item) => ({
+        items: validItems.map((item) => ({
           codigo: item.codigo.trim(),
           producto: item.producto.trim(),
           cantidad: parseFloat(item.cantidad) || 0,
@@ -125,18 +220,16 @@ export function InvoiceForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error al guardar");
 
       toast({
-        title: "Factura registrada",
-        description: `${numero.trim()} - ${items.length} producto(s) - ${formatMoney(data.total)}`,
+        title: "Factura guardada",
+        description: `${numero.trim()} — ${validItems.length} ítem(es) — ${formatMoney(data.total)}`,
       });
 
       triggerRefresh();
       limpiarFormulario();
-      setActiveTab("dashboard");
     } catch (err) {
       toast({
         title: "Error al guardar",
@@ -148,132 +241,183 @@ export function InvoiceForm() {
     }
   };
 
+  // Scroll to bottom when new row is added
+  const lastRowRef = useRef<HTMLTableRowElement>(null);
+  useEffect(() => {
+    if (items.length > 1) {
+      lastRowRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [items.length]);
+
   return (
-    <div className="space-y-6 animate-in fade-in max-w-4xl">
-      <div>
-        <h2 className="text-xl font-bold text-stone-900">Registrar nueva factura</h2>
-        <p className="text-sm text-stone-500 mt-0.5">Completá los datos de la factura y los productos</p>
+    <div className="space-y-4 animate-in fade-in max-w-5xl" ref={containerRef}>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-stone-900">Nueva factura</h2>
+          <p className="text-sm text-stone-500 mt-0.5">Completá los datos y presioná Enter para avanzar entre campos</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={limpiarFormulario} disabled={sending} className="gap-1.5 h-9">
+            <RotateCcw className="w-3.5 h-3.5" /> Limpiar
+          </Button>
+          <Button onClick={guardar} disabled={sending} className="gap-1.5 h-9 px-5 bg-purple-800 hover:bg-purple-900 text-white font-semibold shadow-sm">
+            <Save className="w-3.5 h-3.5" /> {sending ? "Guardando..." : "Guardar factura"}
+          </Button>
+        </div>
       </div>
 
-      {/* Datos generales */}
+      {/* Header fields - Excel style */}
       <Card className="border-0 shadow-sm">
-        <CardContent className="p-6">
-          <h3 className="font-semibold text-stone-800 mb-4 flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center font-bold">1</div>
-            Datos de la factura
-          </h3>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="numero" className="text-sm font-medium">N° de Factura *</Label>
-              <Input id="numero" placeholder="Ej: FC 000-0008806" value={numero} onChange={(e) => setNumero(e.target.value)} className="h-11 text-base" />
+        <CardContent className="p-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">N° Factura</label>
+              <CellInput
+                inputRef={(el) => { headerRefs.current["numero"] = el; }}
+                value={numero} onChange={setNumero} placeholder="FC 000-0008806"
+                onKeyDown={(e) => handleHeaderKeyDown("numero", "tipo", e)}
+              />
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="tipo" className="text-sm font-medium">Tipo</Label>
-              <Select value={tipo} onValueChange={setTipo}>
-                <SelectTrigger className="h-11 text-base">
-                  <SelectValue placeholder="Seleccionar" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="FC">FC (Factura C)</SelectItem>
-                  <SelectItem value="FA">FA (Factura A)</SelectItem>
-                  <SelectItem value="FB">FB (Factura B)</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Tipo</label>
+              <CellInput
+                inputRef={(el) => { headerRefs.current["tipo"] = el; }}
+                value={tipo} onChange={setTipo} placeholder="FC"
+                onKeyDown={(e) => handleHeaderKeyDown("tipo", "fecha", e)}
+              />
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="fecha" className="text-sm font-medium">Fecha *</Label>
-              <Input id="fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="h-11 text-base" />
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Fecha</label>
+              <CellInput
+                inputRef={(el) => { headerRefs.current["fecha"] = el; }}
+                type="date" value={fecha} onChange={setFecha}
+                onKeyDown={(e) => handleHeaderKeyDown("fecha", "proveedor", e)}
+              />
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="proveedor" className="text-sm font-medium">Proveedor</Label>
-              <Input id="proveedor" placeholder="CUCIMUNDO" value={proveedor} onChange={(e) => setProveedor(e.target.value)} className="h-11 text-base" />
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Razón Social</label>
+              <CellInput
+                inputRef={(el) => { headerRefs.current["proveedor"] = el; }}
+                value={proveedor} onChange={setProveedor} placeholder="CUCIMUNDO"
+                onKeyDown={(e) => handleHeaderKeyDown("proveedor", "items-start", e)}
+              />
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Tabla de productos */}
+      {/* Items table - Excel spreadsheet style */}
       <Card className="border-0 shadow-sm">
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-stone-800 flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center font-bold">2</div>
-              Productos
-            </h3>
-            <Button type="button" variant="outline" size="sm" onClick={agregarFila} className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50">
-              <Plus className="w-4 h-4" /> Agregar fila
-            </Button>
-          </div>
-
-          <div className="overflow-x-auto -mx-6 px-6">
-            {/* Header */}
-            <div className="grid gap-2 min-w-[580px] mb-2 px-1">
-              <div className="grid grid-cols-[80px_1fr_80px_120px_120px_44px] gap-2 text-xs font-semibold text-stone-500 uppercase tracking-wider">
-                <span>Código</span>
-                <span>Descripción *</span>
-                <span className="text-center">Cantidad *</span>
-                <span className="text-right">P.Unitario</span>
-                <span className="text-right">Subtotal</span>
-                <span></span>
-              </div>
-            </div>
-
-            {/* Filas */}
-            <div className="space-y-2">
-              {items.map((item) => {
+        <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between">
+          <span className="text-sm font-semibold text-stone-700">Productos</span>
+          <Button type="button" variant="ghost" size="sm" onClick={agregarFila} className="gap-1 text-purple-700 text-xs h-7">
+            <Plus className="w-3.5 h-3.5" /> Agregar fila
+          </Button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[600px]">
+            <thead>
+              <tr className="bg-stone-50 border-b border-stone-200">
+                <th className="text-left text-xs font-semibold text-stone-500 uppercase tracking-wider px-3 py-2 w-[90px]">Codigo</th>
+                <th className="text-left text-xs font-semibold text-stone-500 uppercase tracking-wider px-3 py-2">Descripcion</th>
+                <th className="text-center text-xs font-semibold text-stone-500 uppercase tracking-wider px-3 py-2 w-[80px]">Cant.</th>
+                <th className="text-right text-xs font-semibold text-stone-500 uppercase tracking-wider px-3 py-2 w-[120px]">P.Unitario</th>
+                <th className="text-right text-xs font-semibold text-stone-500 uppercase tracking-wider px-3 py-2 w-[110px]">Subtotal</th>
+                <th className="w-[36px]"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item, rowIdx) => {
                 const cant = parseFloat(item.cantidad) || 0;
                 const val = parseFloat(item.valorUnit) || 0;
                 const sub = cant * val;
+                const isLast = rowIdx === items.length - 1;
 
                 return (
-                  <div key={item.id} className="grid grid-cols-[80px_1fr_80px_120px_120px_44px] gap-2 items-center p-2 rounded-lg bg-stone-50/80 hover:bg-stone-100 transition-colors group min-w-[580px]">
-                    <Input placeholder="S-0100" value={item.codigo} onChange={(e) => actualizarItem(item.id, "codigo", e.target.value)} className="h-9 text-sm" />
-                    <Input placeholder="Descripción del producto" value={item.producto} onChange={(e) => actualizarItem(item.id, "producto", e.target.value)} className="h-9 text-sm" />
-                    <Input type="number" placeholder="0" min="0" step="any" value={item.cantidad} onChange={(e) => actualizarItem(item.id, "cantidad", e.target.value)} className="h-9 text-sm text-center" />
-                    <Input type="number" placeholder="0.00" min="0" step="any" value={item.valorUnit} onChange={(e) => actualizarItem(item.id, "valorUnit", e.target.value)} className="h-9 text-sm text-right" />
-                    <div className="text-sm text-stone-600 text-right font-medium">{sub > 0 ? formatMoney(sub) : "-"}</div>
-                    <button type="button" onClick={() => quitarFila(item.id)} disabled={items.length <= 1} className="w-9 h-9 rounded-lg flex items-center justify-center text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer" title="Quitar fila">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                  <tr
+                    key={item.id}
+                    ref={isLast ? lastRowRef : undefined}
+                    className={`border-b border-stone-100 hover:bg-purple-50/40 transition-colors ${
+                      !item.producto && !item.cantidad ? "bg-stone-50/50" : ""
+                    }`}
+                  >
+                    <td className="px-1.5 py-1">
+                      <CellInput
+                        inputRef={(el) => { itemRefs.current[`${rowIdx}-codigo`] = el; }}
+                        value={item.codigo}
+                        onChange={(v) => actualizarItem(item.id, "codigo", v)}
+                        onKeyDown={(e) => handleItemKeyDown(rowIdx, "codigo", e)}
+                        placeholder="S-0100"
+                        className="font-mono text-xs"
+                      />
+                    </td>
+                    <td className="px-1.5 py-1">
+                      <CellInput
+                        inputRef={(el) => { itemRefs.current[`${rowIdx}-producto`] = el; }}
+                        value={item.producto}
+                        onChange={(v) => actualizarItem(item.id, "producto", v)}
+                        onKeyDown={(e) => handleItemKeyDown(rowIdx, "producto", e)}
+                        placeholder="Nombre del producto"
+                      />
+                    </td>
+                    <td className="px-1.5 py-1">
+                      <CellInput
+                        inputRef={(el) => { itemRefs.current[`${rowIdx}-cantidad`] = el; }}
+                        type="number" align="center"
+                        value={item.cantidad}
+                        onChange={(v) => actualizarItem(item.id, "cantidad", v)}
+                        onKeyDown={(e) => handleItemKeyDown(rowIdx, "cantidad", e)}
+                        placeholder="0"
+                        className="font-mono"
+                      />
+                    </td>
+                    <td className="px-1.5 py-1">
+                      <CellInput
+                        inputRef={(el) => { itemRefs.current[`${rowIdx}-valorUnit`] = el; }}
+                        type="number" align="right"
+                        value={item.valorUnit}
+                        onChange={(v) => actualizarItem(item.id, "valorUnit", v)}
+                        onKeyDown={(e) => handleItemKeyDown(rowIdx, "valorUnit", e)}
+                        placeholder="0.00"
+                        className="font-mono"
+                      />
+                    </td>
+                    <td className="px-3 py-1 text-right">
+                      <span className={`text-sm font-medium ${sub > 0 ? "text-stone-800" : "text-stone-300"}`}>
+                        {sub > 0 ? formatMoney(sub) : "-"}
+                      </span>
+                    </td>
+                    <td className="px-1 py-1">
+                      <button
+                        type="button"
+                        onClick={() => quitarFila(item.id)}
+                        disabled={items.length <= 1}
+                        className="w-7 h-7 rounded flex items-center justify-center text-stone-300 hover:text-rose-500 hover:bg-rose-50 transition-colors disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
+                        title="Quitar"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
                 );
               })}
-            </div>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer with totals */}
+        <div className="px-4 py-3 border-t border-stone-200 bg-stone-50/50 flex items-center justify-between">
+          <span className="text-xs text-stone-400">{items.filter((i) => i.producto).length} producto(s) | {totalUnidades} unidades</span>
+          <div className="text-right">
+            <span className="text-xs text-stone-500 mr-2">Total</span>
+            <span className="text-lg font-bold text-stone-900">{formatMoney(totalCalculado)}</span>
           </div>
-        </CardContent>
+        </div>
       </Card>
 
-      {/* Total + Botones */}
-      <Card className="border-0 shadow-sm bg-emerald-50/50">
-        <CardContent className="p-6">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <p className="text-sm text-stone-500 mb-1">Total de la factura</p>
-              <p className="text-3xl font-bold text-stone-900">{formatMoney(totalCalculado)}</p>
-              <p className="text-xs text-stone-400 mt-1">{items.length} producto(s) | {totalUnidades} unidades en total</p>
-            </div>
-            <div className="flex gap-2 w-full sm:w-auto">
-              <Button variant="outline" onClick={limpiarFormulario} disabled={sending} className="gap-2 h-11 px-5">
-                <RotateCcw className="w-4 h-4" /> Limpiar
-              </Button>
-              <Button onClick={guardar} disabled={sending} className="gap-2 h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-md shadow-emerald-200">
-                <Save className="w-4 h-4" /> {sending ? "Guardando..." : "Guardar Factura"}
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
-        <Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-        <p className="text-sm text-amber-800">
-          <strong>Consejo:</strong> Los campos con * son obligatorios. El subtotal se calcula automáticamente. Para importar muchas facturas de golpe, usá la pestaña "Importar".
-        </p>
-      </div>
+      <p className="text-xs text-stone-400 text-center">
+        Enter para avanzar entre campos | Tab para saltar columnas | La ultima columna crea fila nueva automaticamente
+      </p>
     </div>
   );
 }

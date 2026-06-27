@@ -136,7 +136,7 @@ export function InvoiceList() {
           <h2 className="text-xl font-bold text-stone-900">Consultar facturas</h2>
           <p className="text-sm text-stone-500 mt-0.5">Buscá por número, producto o fecha</p>
         </div>
-        <Button variant="outline" size="sm" onClick={exportarExcel} disabled={exporting} className="gap-2 text-emerald-700 border-emerald-200 hover:bg-emerald-50">
+        <Button variant="outline" size="sm" onClick={exportarExcel} disabled={exporting} className="gap-2 text-purple-800 border-purple-200 hover:bg-purple-50">
           <Download className={`w-4 h-4 ${exporting ? "animate-pulse" : ""}`} />
           <span className="hidden sm:inline">{exporting ? "Descargando..." : "Exportar Base de Datos"}</span>
         </Button>
@@ -148,10 +148,10 @@ export function InvoiceList() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
           <Input placeholder="Buscar por número, descripción o producto..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} onKeyDown={(e) => e.key === "Enter" && buscar()} className="h-11 pl-10 text-base" />
         </div>
-        <Button variant="outline" onClick={() => setShowFilters(!showFilters)} className={`h-11 gap-2 ${showFilters ? "bg-emerald-50 border-emerald-300 text-emerald-700" : ""}`}>
+        <Button variant="outline" onClick={() => setShowFilters(!showFilters)} className={`h-11 gap-2 ${showFilters ? "bg-purple-50 border-purple-300 text-purple-800" : ""}`}>
           <Filter className="w-4 h-4" /><span className="hidden sm:inline">Fechas</span>
         </Button>
-        <Button onClick={buscar} className="h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-md shadow-emerald-200 gap-2">
+        <Button onClick={buscar} className="h-11 px-6 bg-purple-800 hover:bg-purple-900 text-white font-semibold shadow-md shadow-purple-200 gap-2">
           <Search className="w-4 h-4" /> Buscar
         </Button>
       </div>
@@ -189,8 +189,8 @@ export function InvoiceList() {
               <CardContent className="p-4 sm:p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3 min-w-0 flex-1">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <ShieldCheck className="w-5 h-5 text-emerald-700" />
+                    <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <ShieldCheck className="w-5 h-5 text-purple-800" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -207,7 +207,7 @@ export function InvoiceList() {
                           </p>
                         ))}
                         {inv.items.length > 4 && (
-                          <p className="text-xs text-emerald-600 font-medium">+{inv.items.length - 4} producto(s) más...</p>
+                          <p className="text-xs text-purple-700 font-medium">+{inv.items.length - 4} producto(s) más...</p>
                         )}
                       </div>
                     </div>

@@ -81,8 +81,8 @@ export function Importar() {
       fd.append("archivo", file);
 
       const res = await fetch("/api/import", { method: "POST", body: fd });
-      const data: ImportResult = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      const data = await res.json() as ImportResult;
+      if (!res.ok) throw new Error((data as any).error);
 
       setResult(data);
 
@@ -177,7 +177,7 @@ export function Importar() {
           <p className="text-sm text-stone-500 mt-0.5">Subí el archivo Excel con las hojas de factura</p>
         </div>
 
-        <Card className={`border-2 border-dashed transition-all cursor-pointer ${dragOver ? "border-emerald-500 bg-emerald-50" : "border-stone-300 hover:border-emerald-400 hover:bg-stone-50"}`}
+        <Card className={`border-2 border-dashed transition-all cursor-pointer ${dragOver ? "border-purple-500 bg-purple-50" : "border-stone-300 hover:border-purple-400 hover:bg-stone-50"}`}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
@@ -186,13 +186,13 @@ export function Importar() {
           <CardContent className="p-10 text-center">
             {loading ? (
               <div className="space-y-3">
-                <Loader2 className="w-10 h-10 mx-auto text-emerald-600 animate-spin" />
+                <Loader2 className="w-10 h-10 mx-auto text-purple-700 animate-spin" />
                 <p className="text-stone-600 font-medium">Leyendo hojas del archivo...</p>
                 <p className="text-xs text-stone-400">Esto puede tardar unos segundos con muchas hojas</p>
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-100 flex items-center justify-center"><Upload className="w-7 h-7 text-emerald-600" /></div>
+                <div className="w-14 h-14 mx-auto rounded-2xl bg-purple-100 flex items-center justify-center"><Upload className="w-7 h-7 text-purple-700" /></div>
                 <p className="text-stone-900 font-semibold">Arrastrá el archivo Excel aquí</p>
                 <p className="text-sm text-stone-500">o hacé clic para seleccionarlo</p>
                 <p className="text-xs text-stone-400">Acepta archivos .xlsx con una o más hojas de factura</p>
@@ -221,11 +221,11 @@ export function Importar() {
 
         <Card className="border-0 shadow-sm">
           <CardContent className="p-8 text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-emerald-100 flex items-center justify-center">
-              <CheckCircle2 className="w-8 h-8 text-emerald-600" />
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-purple-100 flex items-center justify-center">
+              <CheckCircle2 className="w-8 h-8 text-purple-700" />
             </div>
             <h3 className="text-lg font-bold text-stone-900 mb-1">Importación exitosa</h3>
-            <p className="text-3xl font-bold text-emerald-600 my-3">{importResult.importadas} factura(s) importada(s)</p>
+            <p className="text-3xl font-bold text-purple-700 my-3">{importResult.importadas} factura(s) importada(s)</p>
             <div className="flex justify-center gap-6 text-sm text-stone-500">
               {importResult.duplicadas > 0 && <span className="text-amber-600">{importResult.duplicadas} duplicada(s) omitida(s)</span>}
             </div>
@@ -247,7 +247,7 @@ export function Importar() {
           <Button variant="outline" onClick={() => { setPaso("subir"); setResult(null); setImportResult(null); if (fileRef.current) fileRef.current.value = ""; }}>
             Importar otro archivo
           </Button>
-          <Button onClick={() => setActiveTab("consultar")} className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-md shadow-emerald-200">
+          <Button onClick={() => setActiveTab("consultar")} className="bg-purple-800 hover:bg-purple-900 text-white font-semibold shadow-md shadow-purple-200">
             Ver facturas importadas
           </Button>
         </div>
@@ -272,9 +272,9 @@ export function Importar() {
 
       {/* Barra de progreso de pasos */}
       <div className="flex items-center gap-2 text-xs">
-        <div className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-emerald-600" /><span className="font-medium text-emerald-700">Paso 1: Cargar archivo</span></div>
-        <div className="w-8 h-px bg-emerald-300" />
-        <div className="flex items-center gap-1.5"><Eye className="w-4 h-4 text-emerald-600" /><span className="font-medium text-emerald-700">Paso 2: Revisar datos</span></div>
+        <div className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-purple-700" /><span className="font-medium text-purple-800">Paso 1: Cargar archivo</span></div>
+        <div className="w-8 h-px bg-purple-300" />
+        <div className="flex items-center gap-1.5"><Eye className="w-4 h-4 text-purple-700" /><span className="font-medium text-purple-800">Paso 2: Revisar datos</span></div>
         <div className="w-8 h-px bg-stone-300" />
         <div className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-stone-400" /><span className="text-stone-400">Paso 3: Confirmar</span></div>
       </div>
@@ -284,9 +284,9 @@ export function Importar() {
         <CardContent className="p-5">
           <h3 className="font-semibold text-stone-900 mb-3">Resultado del análisis</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="p-3 rounded-lg bg-emerald-50 text-center">
-              <p className="text-2xl font-bold text-emerald-700">{result.exitosas}</p>
-              <p className="text-xs text-emerald-600">Extraídas bien</p>
+            <div className="p-3 rounded-lg bg-purple-50 text-center">
+              <p className="text-2xl font-bold text-purple-800">{result.exitosas}</p>
+              <p className="text-xs text-purple-700">Extraídas bien</p>
             </div>
             <div className={`p-3 rounded-lg text-center ${result.conErrores > 0 ? "bg-amber-50" : "bg-stone-50"}`}>
               <p className={`text-2xl font-bold ${result.conErrores > 0 ? "text-amber-700" : "text-stone-400"}`}>{result.conErrores}</p>
@@ -309,7 +309,7 @@ export function Importar() {
         <CardContent className="p-5">
           <div className="flex items-center justify-between mb-3">
             <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={selectedAll} onChange={toggleAll} className="w-4 h-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500" />
+              <input type="checkbox" checked={selectedAll} onChange={toggleAll} className="w-4 h-4 rounded border-stone-300 text-purple-700 focus:ring-purple-500" />
               <span className="text-sm font-medium text-stone-700">Seleccionar todas las válidas</span>
             </label>
             <span className="text-xs text-stone-400">{exitosasSeleccionadas} seleccionada(s)</span>
@@ -317,10 +317,10 @@ export function Importar() {
 
           <div className="space-y-2 max-h-[450px] overflow-y-auto">
             {result.facturas.map((fac, idx) => (
-              <div key={idx} className={`rounded-lg border p-3 transition-colors ${fac.exito ? selected.has(idx) ? "border-emerald-300 bg-emerald-50/50" : "border-stone-200 bg-white hover:bg-stone-50" : "border-amber-200 bg-amber-50/50 opacity-70"}`}>
+              <div key={idx} className={`rounded-lg border p-3 transition-colors ${fac.exito ? selected.has(idx) ? "border-purple-300 bg-purple-50/50" : "border-stone-200 bg-white hover:bg-stone-50" : "border-amber-200 bg-amber-50/50 opacity-70"}`}>
                 <div className="flex items-center gap-3">
                   {fac.exito ? (
-                    <input type="checkbox" checked={selected.has(idx)} onChange={() => toggleSelect(idx)} className="w-4 h-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500" />
+                    <input type="checkbox" checked={selected.has(idx)} onChange={() => toggleSelect(idx)} className="w-4 h-4 rounded border-stone-300 text-purple-700 focus:ring-purple-500" />
                   ) : (
                     <XCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
                   )}
@@ -337,7 +337,7 @@ export function Importar() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {fac.exito ? <CheckCircle2 className="w-5 h-5 text-emerald-600" /> : <AlertTriangle className="w-5 h-5 text-amber-500" />}
+                    {fac.exito ? <CheckCircle2 className="w-5 h-5 text-purple-700" /> : <AlertTriangle className="w-5 h-5 text-amber-500" />}
                     <button onClick={() => toggleExpand(idx)} className="p-1 hover:bg-stone-200 rounded cursor-pointer">
                       {expanded.has(idx) ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
                     </button>
@@ -376,10 +376,10 @@ export function Importar() {
       </Card>
 
       {/* Botón confirmar con seguridad */}
-      <Card className="border-2 border-emerald-200 bg-emerald-50/50">
+      <Card className="border-2 border-purple-200 bg-purple-50/50">
         <CardContent className="p-5">
           <div className="flex items-start gap-3 mb-4">
-            <ShieldCheck className="w-6 h-6 text-emerald-600 flex-shrink-0 mt-0.5" />
+            <ShieldCheck className="w-6 h-6 text-purple-700 flex-shrink-0 mt-0.5" />
             <div>
               <h3 className="font-semibold text-stone-900">Modo confirmación</h3>
               <p className="text-sm text-stone-600">Revisá que los datos sean correctos. Las facturas duplicadas se omiten automáticamente. Esta acción no se puede deshacer.</p>
@@ -389,7 +389,7 @@ export function Importar() {
             <Button variant="outline" onClick={() => { setPaso("subir"); setResult(null); if (fileRef.current) fileRef.current.value = ""; }} disabled={importing}>
               Cancelar
             </Button>
-            <Button onClick={confirmarImport} disabled={importing || exitosasSeleccionadas === 0} className="gap-2 h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-md shadow-emerald-200">
+            <Button onClick={confirmarImport} disabled={importing || exitosasSeleccionadas === 0} className="gap-2 h-11 px-6 bg-purple-800 hover:bg-purple-900 text-white font-semibold shadow-md shadow-purple-200">
               {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
               {importing ? "Guardando..." : `Confirmar e importar ${exitosasSeleccionadas} factura(s)`}
             </Button>
