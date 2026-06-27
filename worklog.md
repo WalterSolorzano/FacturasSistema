@@ -119,3 +119,27 @@ Stage Summary:
 - Números: NaN/Infinity → 0 con advertencia registrada
 - 15 puntos de fallo corregidos
 
+---
+Task ID: 2
+Agent: Main Agent
+Task: Corregir auto-duplicados, exportar original, verificar formulario
+
+Work Log:
+- Confirm API: eliminada toda lógica de auto-detección de duplicados. Ahora importa TODO lo que el usuario seleccionó, sin excepción.
+- Creada API /api/import/existing: consulta qué números ya existen en el proyecto (solo informativo)
+- Importar.tsx: muestra "Ya existe" como badge informativo azul, con mensaje "Si es una compra nueva, es normal. Vos decidís"
+- Importar.tsx: contador "Ya en BD" en el resumen, nota explicativa
+- Export route: restaurado ?format=original — cada hoja = 1 factura en la plantilla exacta (Fila 0: número, Fila 1: tipo, Fila 2: fecha, Fila 3: cliente, Fila 11: headers, items, TOTAL)
+- Export route: la hoja BaseDeDatos se inserta al principio del workbook original
+- InvoiceList: 2 botones de exportar — "Base de Datos" y "Exportar Original"
+- Dashboard: QuickAction "Exportar Original" — "Cada hoja = 1 factura en la plantilla original"
+- Corregido bug: fetch URL faltaba / en exportarExcel de InvoiceList
+- InvoiceForm: verificado que Enter-to-advance funciona (N° → Tipo → Fecha → Cliente → Código → Descripción → Cantidad → P.Unit → nueva fila)
+- Build exitoso sin errores, 12 rutas incluyendo /api/import/existing
+
+Stage Summary:
+- El sistema ya NO decide nada: sin auto-duplicados, sin auto-nada
+- El usuario ve "Ya existe" como info y decide
+- Exportar Original genera Excel con 1 hoja por factura en formato de plantilla
+- Formulario de creación con navegación Excel (Enter avanza)
+

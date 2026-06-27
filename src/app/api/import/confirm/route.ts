@@ -32,15 +32,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const exitosas = facturas.filter((f) => f.exito);
-
-    if (exitosas.length === 0) {
-      return NextResponse.json(
-        { error: "Ninguna factura se pudo extraer correctamente." },
-        { status: 400 }
-      );
-    }
-
     // Verificar que el proyecto existe
     const project = await db.project.findUnique({ where: { id: projectId } });
     if (!project) {
@@ -51,19 +42,19 @@ export async function POST(request: Request) {
     }
 
     let importadas = 0;
-    let duplicadas = 0;
     let omitidasFecha = 0;
     const erroresDetalle: string[] = [];
 
-    for (const fac of exitosas) {
+    // ============================================================
+    // IMPORTAR TODO LO QUE EL USUARIO SELECCIONÓ.
+    // NO decidir nada: sin auto-duplicados, sin auto-nada.
+    // Solo se rechaza lo que es imposible de guardar (sin fecha, sin productos).
+    // ============================================================
+    for (const fac of facturas) {
       try {
-        // Verificar duplicado por número dentro del proyecto
-        const existente = await db.invoice.findFirst({
-          where: { numero: fac.numero, projectId },
-        });
-
-        if (existente) {
-          duplicadas++;
+        // Solo importar las que tienen datos válidos
+        if (!fac.exito) {
+          erroresDetalle.push(`${fac.numero || fac.hoja}: no se pudo extraer correctamente`);
           continue;
         }
 
@@ -77,7 +68,7 @@ export async function POST(request: Request) {
         // ============================================================
         if (!fac.fecha) {
           omitidasFecha++;
-          erroresDetalle.push(`${fac.numero}: RECHAZADA — sin fecha válida (no se inventa fecha)`);
+          erroresDetalle.push(`${fac.numero}: RECHAZADA — sin fecha válida`);
           continue;
         }
 
@@ -85,10 +76,9 @@ export async function POST(request: Request) {
         const d = new Date(fac.fecha);
         if (isNaN(d.getTime())) {
           omitidasFecha++;
-          erroresDetalle.push(`${fac.numero}: RECHAZADA — fecha inválida "${fac.fecha}"`);
+          erroresDetalle.push(`${fac.numero}: RECHAZADA — fecha inválida`);
           continue;
         }
-        // Validar rango razonable
         if (d.getFullYear() < 1990 || d.getFullYear() > 2030) {
           omitidasFecha++;
           erroresDetalle.push(`${fac.numero}: RECHAZADA — fecha fuera de rango (${d.getFullYear()})`);
@@ -146,15 +136,13 @@ export async function POST(request: Request) {
       }
     }
 
-    // Construir resumen con contexto
     const resumen: string[] = [];
     if (omitidasFecha > 0) {
-      resumen.push(`${omitidasFecha} factura(s) rechazada(s) por falta de fecha`);
+      resumen.push(`${omitidasFecha} factura(s) rechazada(s) por falta de fecha válida`);
     }
 
     return NextResponse.json({
       importadas,
-      duplicadas,
       omitidasFecha,
       errores: erroresDetalle,
       resumen,

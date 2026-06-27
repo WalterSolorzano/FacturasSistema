@@ -59,6 +59,7 @@ export function InvoiceList() {
   const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportingOriginal, setExportingOriginal] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const fetchInvoices = useCallback(async () => {
@@ -81,19 +82,28 @@ export function InvoiceList() {
   const buscar = () => { setPagina(1); fetchInvoices(); };
   const limpiarFiltros = () => { setBusqueda(""); setDesde(""); setHasta(""); setPagina(1); };
 
-  const exportarExcel = async () => {
-    setExporting(true);
+  const downloadBlob = async (url: string, filename: string, loadingSetter: (v: boolean) => void) => {
+    loadingSetter(true);
     try {
-      const params = activeProjectId ? `?projectId=${activeProjectId}` : "";
-      const res = await fetch(`/api/invoices/export${params}`);
+      const res = await fetch(url);
       if (!res.ok) throw new Error();
       const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = "BaseDeDatos.xlsx";
-      document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
-      toast({ title: "Excel descargado", description: "BaseDeDatos.xlsx con hoja de Trazabilidad" });
+      const link = window.URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = link; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(link);
+      toast({ title: "Excel descargado", description: filename });
     } catch { toast({ title: "Error", description: "No se pudo generar el Excel.", variant: "destructive" }); }
-    finally { setExporting(false); }
+    finally { loadingSetter(false); }
+  };
+
+  const exportarExcel = () => {
+    const params = activeProjectId ? `?projectId=${activeProjectId}` : "";
+    downloadBlob(`/api/invoices/export${params}`, "BaseDeDatos.xlsx", setExporting);
+  };
+
+  const exportarOriginal = () => {
+    const base = activeProjectId ? `?projectId=${activeProjectId}` : "?";
+    downloadBlob(`/api/invoices/export${base}&format=original`, "Facturas_Original.xlsx", setExportingOriginal);
   };
 
   const eliminarFactura = async () => {
@@ -112,9 +122,14 @@ export function InvoiceList() {
     <div className="space-y-5 animate-in fade-in">
       <div className="flex items-center justify-between">
         <div><h2 className="text-xl font-bold text-stone-900">Consultar facturas</h2><p className="text-sm text-stone-500 mt-0.5">Buscá por número, producto o fecha</p></div>
-        <Button variant="outline" size="sm" onClick={exportarExcel} disabled={exporting} className="gap-2 text-purple-800 border-purple-200 hover:bg-purple-50">
-          <Download className={`w-4 h-4 ${exporting ? "animate-pulse" : ""}`} /><span className="hidden sm:inline">{exporting ? "Descargando..." : "Exportar"}</span>
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={exportarOriginal} disabled={exportingOriginal} className="gap-2 text-purple-800 border-purple-200 hover:bg-purple-50">
+            <Download className={`w-4 h-4 ${exportingOriginal ? "animate-pulse" : ""}`} /><span className="hidden sm:inline">{exportingOriginal ? "Descargando..." : "Exportar Original"}</span>
+          </Button>
+          <Button variant="outline" size="sm" onClick={exportarExcel} disabled={exporting} className="gap-2 text-purple-800 border-purple-200 hover:bg-purple-50">
+            <Download className={`w-4 h-4 ${exporting ? "animate-pulse" : ""}`} /><span className="hidden sm:inline">{exporting ? "Descargando..." : "Base de Datos"}</span>
+          </Button>
+        </div>
       </div>
       <div className="flex gap-2">
         <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
