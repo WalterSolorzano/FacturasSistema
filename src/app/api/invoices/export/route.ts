@@ -94,163 +94,98 @@ async function exportarFormatoOriginal(invoices: any[]) {
 
     // Anchos de columna (coinciden con el Excel original)
     ws.columns = [
-      { width: 18 },  // A - CANTIDAD / Cliente / Descripción
+      { width: 18 },  // A - CANTIDAD / Cliente
       { width: 14 },  // B - CODIGO
       { width: 4 },   // C - vacío
-      { width: 50 },  // D - DESCRIPCION (merge D:F)
+      { width: 50 },  // D - DESCRIPCION
       { width: 3 },   // E
       { width: 3 },   // F
       { width: 14 },  // G - P.UNI
-      { width: 14 },  // H - TOTAL / Fecha
+      { width: 14 },  // H - TOTAL
     ];
 
-    // ---- FILA 1: Número de factura en G1 ----
-    ws.mergeCells("G1:I1");
-    const c1 = ws.getCell("G1");
-    c1.value = inv.numero;
-    c1.font = { bold: true, size: 12, name: "Calibri" };
-    c1.alignment = { horizontal: "left" };
+    const plainFont = { size: 10, name: "Calibri" };
+    const boldFont = { bold: true, size: 10, name: "Calibri" };
+    const boldFontSm = { bold: true, size: 12, name: "Calibri" };
 
-    // ---- FILA 2: Tipo en B2 ----
-    const c2 = ws.getCell("B2");
-    c2.value = inv.tipo || "FC";
-    c2.font = { size: 10, name: "Calibri" };
+    // ---- FILA 1 (r=0): Número de factura en G1 (SIN merge) ----
+    ws.getCell("G1").value = inv.numero;
+    ws.getCell("G1").font = boldFontSm;
 
-    // ---- FILA 3: Fecha en H3 ----
-    const c3 = ws.getCell("H3");
+    // ---- FILA 2 (r=1): Tipo en B2 ----
+    ws.getCell("B2").value = inv.tipo || "FC";
+    ws.getCell("B2").font = plainFont;
+
+    // ---- FILA 3 (r=2): Fecha en H3 ----
     if (inv.fechaEmision) {
-      c3.value = new Date(inv.fechaEmision);
-      c3.numFmt = "DD/MM/YYYY";
+      ws.getCell("H3").value = new Date(inv.fechaEmision);
+      ws.getCell("H3").numFmt = "DD/MM/YYYY";
     }
-    c3.font = { size: 10, name: "Calibri" };
+    ws.getCell("H3").font = plainFont;
 
-    // ---- FILA 4: Cliente en A4 ----
-    const c4 = ws.getCell("A4");
-    c4.value = inv.proveedor || "";
-    c4.font = { bold: true, size: 11, name: "Calibri" };
+    // ---- FILA 4 (r=3): Cliente en A4 ----
+    ws.getCell("A4").value = inv.proveedor || "";
+    ws.getCell("A4").font = boldFont;
 
-    // ---- FILA 5-6: Vacíos (dirección, ciudad) ----
-    // Se dejan vacíos porque no tenemos esos datos
-
-    // ---- FILA 7: CONTADO ----
+    // ---- FILA 7 (r=6): CONTADO ----
     ws.getCell("A7").value = "CONTADO";
-    ws.getCell("A7").font = { size: 10, name: "Calibri" };
+    ws.getCell("A7").font = plainFont;
 
-    // ---- FILA 9: CONTACTO + REMITO ----
+    // ---- FILA 9 (r=8): CONTACTO + REMITO ----
     ws.getCell("A9").value = "CONTACTO :";
     ws.getCell("A9").font = { size: 9, name: "Calibri" };
     ws.getCell("G9").value = "REMITO N° 00000000";
-    ws.getCell("G9").font = { size: 9, name: "Calibri", color: { argb: GRIS_TEXT } };
+    ws.getCell("G9").font = { size: 9, name: "Calibri" };
 
-    // ---- FILA 12: Encabezados de productos ----
-    // Estructura exacta del original: A=CANTIDAD, B=CODIGO, D=DESCRIPCION, G=P.UNI, H=TOTAL
-    const headerRow = 11; // 0-indexed = fila 12 en Excel
-    const headers = [
-      { col: 0, label: "CANTIDAD" },  // A
-      { col: 1, label: "CODIGO" },     // B
-      { col: 3, label: "DESCRIPCION" }, // D
-      { col: 6, label: "P.UNI" },      // G
-      { col: 7, label: "TOTAL" },      // H
-    ];
-    for (const h of headers) {
-      const cell = ws.getRow(headerRow + 1).getCell(h.col + 1); // +1 because ExcelJS is 1-indexed
-      cell.value = h.label;
-      cell.font = { bold: true, size: 10, name: "Calibri" };
-      cell.alignment = { horizontal: "center" };
-      cell.border = {
-        bottom: { style: "thin" as const, color: { argb: "FF000000" } },
-        top: { style: "thin" as const, color: { argb: "FF000000" } },
-        left: { style: "thin" as const, color: { argb: "FF000000" } },
-        right: { style: "thin" as const, color: { argb: "FF000000" } },
-      };
-    }
+    // ---- FILA 12 (r=11): Encabezados de productos ----
+    // Sin merge, sin color, sin bordes — plano como el original
+    ws.getCell("A12").value = "CANTIDAD";
+    ws.getCell("A12").font = boldFont;
+    ws.getCell("B12").value = "CODIGO";
+    ws.getCell("B12").font = boldFont;
+    ws.getCell("D12").value = "DESCRIPCION";
+    ws.getCell("D12").font = boldFont;
+    ws.getCell("G12").value = "P.UNI";
+    ws.getCell("G12").font = boldFont;
+    ws.getCell("H12").value = "TOTAL";
+    ws.getCell("H12").font = boldFont;
 
-    // ---- FILA 12+: Productos ----
-    let row = headerRow + 2; // Empezar en fila 13 (0-indexed 12)
+    // ---- FILA 13+ (r=12+): Productos ----
+    let row = 13; // Excel 1-indexed
     for (const item of inv.items) {
-      const currentRow = ws.getRow(row + 1); // ExcelJS 1-indexed
-
       // A = CANTIDAD
-      const cellA = currentRow.getCell(1);
-      cellA.value = item.cantidad;
-      cellA.alignment = { horizontal: "right" };
-      cellA.numFmt = "#,##0";
-      cellA.border = {
-        bottom: { style: "thin", color: { argb: "FF000000" } },
-        top: { style: "thin", color: { argb: "FF000000" } },
-        left: { style: "thin", color: { argb: "FF000000" } },
-        right: { style: "thin", color: { argb: "FF000000" } },
-      };
+      ws.getCell(row, 1).value = item.cantidad;
+      ws.getCell(row, 1).font = plainFont;
+      ws.getCell(row, 1).numFmt = "#,##0";
 
       // B = CODIGO
-      const cellB = currentRow.getCell(2);
-      cellB.value = item.codigo || "";
-      cellB.font = { size: 10, name: "Calibri" };
-      cellB.border = {
-        bottom: { style: "thin", color: { argb: "FF000000" } },
-        top: { style: "thin", color: { argb: "FF000000" } },
-        left: { style: "thin", color: { argb: "FF000000" } },
-        right: { style: "thin", color: { argb: "FF000000" } },
-      };
+      ws.getCell(row, 2).value = item.codigo || "";
+      ws.getCell(row, 2).font = plainFont;
 
-      // D = DESCRIPCION (merge D:F)
-      ws.mergeCells(`D${row + 1}:F${row + 1}`);
-      const cellD = currentRow.getCell(4);
-      cellD.value = item.producto;
-      cellD.font = { size: 10, name: "Calibri" };
-      cellD.border = {
-        bottom: { style: "thin", color: { argb: "FF000000" } },
-        top: { style: "thin", color: { argb: "FF000000" } },
-        left: { style: "thin", color: { argb: "FF000000" } },
-        right: { style: "thin", color: { argb: "FF000000" } },
-      };
+      // D = DESCRIPCION (sin merge)
+      ws.getCell(row, 4).value = item.producto;
+      ws.getCell(row, 4).font = plainFont;
 
       // G = P.UNI
-      const cellG = currentRow.getCell(7);
-      cellG.value = item.valorUnit;
-      cellG.alignment = { horizontal: "right" };
-      cellG.numFmt = "#,##0.00";
-      cellG.border = {
-        bottom: { style: "thin", color: { argb: "FF000000" } },
-        top: { style: "thin", color: { argb: "FF000000" } },
-        left: { style: "thin", color: { argb: "FF000000" } },
-        right: { style: "thin", color: { argb: "FF000000" } },
-      };
+      ws.getCell(row, 7).value = item.valorUnit;
+      ws.getCell(row, 7).font = plainFont;
+      ws.getCell(row, 7).numFmt = "#,##0.00";
 
       // H = TOTAL
-      const cellH = currentRow.getCell(8);
-      cellH.value = item.subtotal;
-      cellH.alignment = { horizontal: "right" };
-      cellH.numFmt = "#,##0.00";
-      cellH.border = {
-        bottom: { style: "thin", color: { argb: "FF000000" } },
-        top: { style: "thin", color: { argb: "FF000000" } },
-        left: { style: "thin", color: { argb: "FF000000" } },
-        right: { style: "thin", color: { argb: "FF000000" } },
-      };
+      ws.getCell(row, 8).value = item.subtotal;
+      ws.getCell(row, 8).font = plainFont;
+      ws.getCell(row, 8).numFmt = "#,##0.00";
 
       row++;
     }
 
-    // ---- FILA TOTAL (2 filas después del último producto, como en el original) ----
-    const totalRow = row + 1; // Dejar una fila de espacio
-    ws.mergeCells(`D${totalRow + 1}:F${totalRow + 1}`);
-    const totalLabel = ws.getRow(totalRow + 1).getCell(4);
-    totalLabel.value = "TOTAL";
-    totalLabel.font = { bold: true, size: 10, name: "Calibri" };
-    totalLabel.alignment = { horizontal: "right" };
-
-    const totalVal = ws.getRow(totalRow + 1).getCell(8);
-    totalVal.value = inv.total;
-    totalVal.font = { bold: true, size: 10, name: "Calibri" };
-    totalVal.alignment = { horizontal: "right" };
-    totalVal.numFmt = "#,##0.00";
-    totalVal.border = {
-      bottom: { style: "thin", color: { argb: "FF000000" } },
-      top: { style: "thin", color: { argb: "FF000000" } },
-      left: { style: "thin", color: { argb: "FF000000" } },
-      right: { style: "thin", color: { argb: "FF000000" } },
-    };
+    // ---- FILA TOTAL (una fila después del último producto) ----
+    const totalRow = row; // Continúa justo después
+    ws.getCell(totalRow, 4).value = "TOTAL";
+    ws.getCell(totalRow, 4).font = boldFont;
+    ws.getCell(totalRow, 8).value = inv.total;
+    ws.getCell(totalRow, 8).font = boldFont;
+    ws.getCell(totalRow, 8).numFmt = "#,##0.00";
   }
 
   const buffer = await workbook.xlsx.writeBuffer();

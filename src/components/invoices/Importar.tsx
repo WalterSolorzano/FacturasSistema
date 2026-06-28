@@ -16,6 +16,8 @@ import {
   Info,
   ExternalLink,
   AlertCircle,
+  FolderOpen,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -83,7 +85,7 @@ function formatDate(iso: string): string {
 type Paso = "subir" | "revision" | "resultado";
 
 export function Importar() {
-  const { triggerRefresh, setActiveTab, activeProjectId } = useAppStore();
+  const { triggerRefresh, setActiveTab, activeProjectId, projects, setActiveProjectId } = useAppStore();
   const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -152,9 +154,11 @@ export function Importar() {
 
       setResult(data);
 
-      // NO auto-seleccionar. El usuario revisa y decide.
-      setSelected(new Set());
-      setSelectedAll(false);
+      // Pre-seleccionar TODAS las exitosas. El usuario deselecciona las que no quiere.
+      const preselected = new Set<number>();
+      data.facturas.forEach((f, i) => { if (f.exito) preselected.add(i); });
+      setSelected(preselected);
+      setSelectedAll(true);
       setPaso("revision");
     } catch (err) {
       toast({
@@ -232,10 +236,17 @@ export function Importar() {
 
     setImporting(true);
     try {
+      const projectIdToUse = importProjectId || activeProjectId;
+      if (!projectIdToUse) {
+        toast({ title: "Sin proyecto", description: "Seleccioná o creá un proyecto para importar.", variant: "destructive" });
+        setImporting(false);
+        return;
+      }
+
       const res = await fetch("/api/import/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ facturas: facturasAImportar, projectId: activeProjectId }),
+        body: JSON.stringify({ facturas: facturasAImportar, projectId: projectIdToUse }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -267,12 +278,51 @@ export function Importar() {
   const toggleAll = () => {
     if (!result) return;
     if (selectedAll) {
+      // Deseleccionar todas
       setSelected(new Set()); setSelectedAll(false);
     } else {
       // Seleccionar TODAS las exitosas
       const all = new Set<number>();
       result.facturas.forEach((f, i) => { if (f.exito) all.add(i); });
       setSelected(all); setSelectedAll(true);
+    }
+  };
+
+  // Proyecto destino de la importación
+  const [importProjectId, setImportProjectId] = useState<string | null>(null);
+  const [showProjectPicker, setShowProjectPicker] = useState(false);
+
+  // Al entrar a revisión, setear el proyecto activo como destino
+  useEffect(() => {
+    if (paso === "revision" && activeProjectId) {
+      setImportProjectId(activeProjectId);
+    }
+  }, [paso, activeProjectId]);
+
+  // Crear proyecto nuevo desde la pantalla de importación
+  const [newProjectName, setNewProjectName] = useState("");
+  const [creatingProject, setCreatingProject] = useState(false);
+
+  const crearProyecto = async () => {
+    if (!newProjectName.trim()) return;
+    setCreatingProject(true);
+    try {
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: newProjectName.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setImportProjectId(data.id);
+      setActiveProjectId(data.id);
+      setNewProjectName("");
+      setShowProjectPicker(false);
+      toast({ title: "Proyecto creado", description: `Ahora importando en "${data.nombre}"` });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "No se pudo crear el proyecto.", variant: "destructive" });
+    } finally {
+      setCreatingProject(false);
     }
   };
 
@@ -469,11 +519,13 @@ export function Importar() {
         <Card className="border-0 shadow-sm">
           <CardContent className="p-5">
             <div className="flex items-center justify-between mb-3">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={selectedAll} onChange={toggleAll} className="w-4 h-4 rounded border-stone-300 text-purple-700 focus:ring-purple-500" />
-                <span className="text-sm font-medium text-stone-700">Seleccionar todas las válidas</span>
-              </label>
-              <span className="text-xs text-stone-400">{exitosasSeleccionadas} seleccionada(s)</span>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={selectedAll} onChange={toggleAll} className="w-4 h-4 rounded border-stone-300 text-purple-700 focus:ring-purple-500" />
+                  <span className="text-sm font-medium text-stone-700">{selectedAll ? "Deseleccionar todas" : "Seleccionar todas"}</span>
+                </label>
+                <span className="text-xs text-stone-400">{exitosasSeleccionadas} de {result.facturas.filter(f => f.exito).length} seleccionada(s)</span>
+              </div>
             </div>
 
             <div className="space-y-2 max-h-[500px] overflow-y-auto">
@@ -617,12 +669,12 @@ export function Importar() {
           </CardContent>
         </Card>
 
-        {/* Botón confirmar */}
+        {/* Selector de proyecto + Botón confirmar */}
         <Card className="border-2 border-purple-200 bg-purple-50/50">
           <CardContent className="p-5">
             <div className="flex items-start gap-3 mb-4">
               <ShieldCheck className="w-6 h-6 text-purple-700 flex-shrink-0 mt-0.5" />
-              <div>
+              <div className="flex-1">
                 <h3 className="font-semibold text-stone-900">Confirmar importación</h3>
                 <p className="text-sm text-stone-600">
                   Se van a guardar las <strong>{exitosasSeleccionadas} factura(s)</strong> que seleccionaste, exactamente como están.
@@ -631,15 +683,93 @@ export function Importar() {
                 </p>
               </div>
             </div>
+
+            {/* Selector de proyecto destino */}
+            <div className="mb-4 p-3 rounded-lg bg-white border border-stone-200">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <FolderOpen className="w-4 h-4 text-purple-700" />
+                  <span className="text-sm font-medium text-stone-700">Importar en el proyecto:</span>
+                </div>
+                <button
+                  onClick={() => setShowProjectPicker(!showProjectPicker)}
+                  className="text-xs text-purple-700 hover:text-purple-800 font-medium cursor-pointer underline"
+                >
+                  Cambiar proyecto
+                </button>
+              </div>
+              <p className="text-sm font-semibold text-purple-800">
+                {projects.find(p => p.id === importProjectId)?.nombre || (importProjectId ? "Proyecto seleccionado" : "Ningún proyecto")}
+              </p>
+              {importProjectId && (() => {
+                const proj = projects.find(p => p.id === importProjectId);
+                return proj ? (
+                  <p className="text-xs text-stone-400 mt-0.5">
+                    {proj._count.invoices} factura(s) ya cargada(s) en este proyecto — las nuevas se sumarán
+                  </p>
+                ) : null;
+              })()}
+            </div>
+
+            {/* Panel para cambiar/crear proyecto */}
+            {showProjectPicker && (
+              <div className="mb-4 p-3 rounded-lg bg-stone-50 border border-stone-200 space-y-3">
+                <p className="text-xs font-semibold text-stone-500 uppercase">Seleccionar otro proyecto</p>
+                <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                  {projects.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => { setImportProjectId(p.id); setShowProjectPicker(false); }}
+                      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer ${
+                        p.id === importProjectId
+                          ? "bg-purple-100 border border-purple-300 text-purple-800 font-medium"
+                          : "bg-white border border-stone-200 text-stone-700 hover:bg-stone-100"
+                      }`}
+                    >
+                      <span>{p.nombre}</span>
+                      <span className="text-xs text-stone-400 ml-2">({p._count.invoices} fact.)</span>
+                    </button>
+                  ))}
+                  {projects.length === 0 && <p className="text-xs text-stone-400 py-2">No hay proyectos creados.</p>}
+                </div>
+
+                <div className="border-t border-stone-200 pt-3">
+                  <p className="text-xs font-semibold text-stone-500 uppercase mb-1.5">O crear uno nuevo</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newProjectName}
+                      onChange={(e) => setNewProjectName(e.target.value)}
+                      placeholder="Nombre del nuevo proyecto"
+                      className="flex-1 h-9 px-3 text-sm border border-stone-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500"
+                      onKeyDown={(e) => e.key === "Enter" && crearProyecto()}
+                    />
+                    <Button
+                      size="sm"
+                      onClick={crearProyecto}
+                      disabled={creatingProject || !newProjectName.trim()}
+                      className="gap-1.5 bg-purple-800 hover:bg-purple-900 text-white"
+                    >
+                      {creatingProject ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                      Crear
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-3">
               <Button variant="outline" onClick={() => { setPaso("subir"); setResult(null); setNumerosExistentes(new Set()); setUploadedFile(null); if (fileRef.current) fileRef.current.value = ""; }} disabled={importing}>
                 Cancelar
               </Button>
-              <Button onClick={confirmarImport} disabled={importing || exitosasSeleccionadas === 0} className="gap-2 h-11 px-6 bg-purple-800 hover:bg-purple-900 text-white font-semibold shadow-md shadow-purple-200">
+              <Button onClick={confirmarImport} disabled={importing || exitosasSeleccionadas === 0 || !importProjectId} className="gap-2 h-11 px-6 bg-purple-800 hover:bg-purple-900 text-white font-semibold shadow-md shadow-purple-200">
                 {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                 {importing ? "Guardando..." : `Confirmar ${exitosasSeleccionadas} factura(s)`}
               </Button>
             </div>
+            {!importProjectId && (
+              <p className="text-xs text-rose-500 mt-2">Seleccioná un proyecto antes de confirmar.</p>
+            )}
           </CardContent>
         </Card>
       </div>

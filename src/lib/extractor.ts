@@ -300,10 +300,15 @@ function extraerProveedor(hoja: XLSX.WorkSheet): string {
 // ============================================================
 // VERIFICAR SI UNA FILA CONTIENE "TOTAL"
 // ============================================================
+function esEtiquetaTotal(texto: string): boolean {
+  const t = texto.toUpperCase().trim();
+  return t === "TOTAL" || t.startsWith("TOTAL ") || t.startsWith("TOTAL:") || t.startsWith("TOTAL\t");
+}
+
 function filaEsTotal(hoja: XLSX.WorkSheet, fila: number, maxCol: number): boolean {
   for (let c = 0; c <= maxCol; c++) {
-    const val = getStr(hoja, fila, c).toUpperCase();
-    if (val === "TOTAL" || val.startsWith("TOTAL ") || val.startsWith("TOTAL:")) {
+    const val = getStr(hoja, fila, c);
+    if (esEtiquetaTotal(val)) {
       return true;
     }
   }
@@ -425,9 +430,9 @@ function extraerTotalGeneral(
 ): { total: number; encontrado: boolean; fila: number } {
   // 1. Buscar etiqueta "TOTAL" en CUALQUIER fila desde filaInicio hasta el final
   for (let r = filaInicio; r <= rango.e.r; r++) {
-    for (let c = 0; c <= Math.min(rango.e.c, formato.colTotal + 1); c++) {
-      const val = getStr(hoja, r, c).toUpperCase();
-      if (val === "TOTAL" || val.startsWith("TOTAL ") || val.startsWith("TOTAL:")) {
+    for (let c = 0; c <= Math.min(rango.e.c, formato.colTotal + 2); c++) {
+      const val = getStr(hoja, r, c);
+      if (esEtiquetaTotal(val)) {
         // Intentar obtener el valor numérico de la fila TOTAL
         // Probar la columna TOTAL de la cabecera
         const totalVal = getNum(hoja, r, formato.colTotal);
@@ -439,10 +444,16 @@ function extraerTotalGeneral(
           if (totalVal2 > 0) return { total: totalVal2, encontrado: true, fila: r };
         }
 
-        // Probar la columna anterior (TOTAL puede estar a la izquierda del valor)
-        if (c > 0 && c - 1 >= formato.colTotal) {
+        // Probar la columna anterior
+        if (c > 0) {
           const totalVal3 = getNum(hoja, r, c - 1);
           if (totalVal3 > 0) return { total: totalVal3, encontrado: true, fila: r };
+        }
+
+        // Probar TODAS las columnas de esta fila buscando un número > 0
+        for (let sc = 0; sc <= Math.min(rango.e.c, 15); sc++) {
+          const totalVal4 = getNum(hoja, r, sc);
+          if (totalVal4 > 0) return { total: totalVal4, encontrado: true, fila: r };
         }
       }
     }
