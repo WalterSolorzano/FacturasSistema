@@ -10,13 +10,6 @@ const GRIS_BORDE = "FFDEE2E6";
 const BLANCO = "FFFFFFFF";
 const GRIS_TEXT = "FF6C757D";
 
-const BORDE_NEGRO: Partial<ExcelJS.Borders> = {
-  bottom: { style: "thin" as const, color: { argb: "FF000000" } },
-  top: { style: "thin" as const, color: { argb: "FF000000" } },
-  left: { style: "thin" as const, color: { argb: "FF000000" } },
-  right: { style: "thin" as const, color: { argb: "FF000000" } },
-};
-
 function aplicarBorde(cell: ExcelJS.Cell, color: string = GRIS_BORDE) {
   cell.border = {
     top: { style: "thin", color: { argb: color } },
@@ -69,14 +62,22 @@ export async function GET(request: Request) {
 
 // ============================================================
 // FORMATO ORIGINAL: cada factura en una hoja con la estructura
-// de plantilla que ya conocemos.
-// Fila 0: Número de factura (G1)
-// Fila 1: Tipo (G2)
-// Fila 2: Fecha (G3)
-// Fila 3: Proveedor/Cliente (A4)
-// Fila 11: Headers (B=CANTIDAD, C=CODIGO, D-F=DESCRIPCION, G=P.UNI, H=TOTAL)
-// Filas 12+: Items
-// Última fila: TOTAL
+// EXACTA del Excel de referencia CUCIMUNDO:
+//
+// Fila 1 (r=0): G1 = "FC 000-0008805" (merge G:I)
+// Fila 2 (r=1): B2 = "FC"
+// Fila 3 (r=2): H3 = fecha
+// Fila 4 (r=3): A4 = cliente, F4 = número interno
+// Fila 5 (r=4): A5 = dirección (vacía en export)
+// Fila 6 (r=5): A6 = ciudad + tel (vacío en export)
+// Fila 7 (r=6): A7 = "CONTADO"
+// Fila 8 (r=7): A8 = "C.U.I.T.: " (vacío)
+// Fila 9 (r=8): A9 = "CONTACTO: " (vacío), G9 = "REMITO N° 00000000"
+// Fila 10 (r=9): vacía
+// Fila 11 (r=10): vacía
+// Fila 12 (r=11): A12=CANTIDAD, B12=CODIGO, D12=DESCRIPCION, G12=P.UNI, H12=TOTAL
+// Fila 13+ (r=12+): Productos
+// Última fila: D=TOTAL, H=valor total
 // ============================================================
 async function exportarFormatoOriginal(invoices: any[]) {
   const workbook = new ExcelJS.Workbook();
@@ -84,120 +85,173 @@ async function exportarFormatoOriginal(invoices: any[]) {
   workbook.created = new Date();
 
   for (const inv of invoices) {
-    // Nombre seguro para la hoja (max 31 chars, sin caracteres especiales)
-    const safeName = (inv.numero || "sin-numero")
+    // Nombre seguro para la hoja (max 31 chars)
+    const rawName = inv.numero || "sin-numero";
+    const safeName = rawName
       .replace(/[\\/*?\[\]:]/g, "-")
       .substring(0, 31);
     const ws = workbook.addWorksheet(safeName);
 
-    // Anchos de columna
+    // Anchos de columna (coinciden con el Excel original)
     ws.columns = [
-      { width: 3 },   // A
-      { width: 12 },  // B - CANTIDAD
-      { width: 20 },  // C - CODIGO
-      { width: 3 },   // D
-      { width: 14 },  // E
-      { width: 14 },  // F
-      { width: 3 },   // G
+      { width: 18 },  // A - CANTIDAD / Cliente / Descripción
+      { width: 14 },  // B - CODIGO
+      { width: 4 },   // C - vacío
+      { width: 50 },  // D - DESCRIPCION (merge D:F)
+      { width: 3 },   // E
+      { width: 3 },   // F
       { width: 14 },  // G - P.UNI
-      { width: 14 },  // H - TOTAL
+      { width: 14 },  // H - TOTAL / Fecha
     ];
 
-    // Fila 1 (row 0): Número de factura — en G1:I1
+    // ---- FILA 1: Número de factura en G1 ----
     ws.mergeCells("G1:I1");
     const c1 = ws.getCell("G1");
     c1.value = inv.numero;
     c1.font = { bold: true, size: 12, name: "Calibri" };
     c1.alignment = { horizontal: "left" };
 
-    // Fila 2 (row 1): Tipo — en G2
-    const c2 = ws.getCell("G2");
+    // ---- FILA 2: Tipo en B2 ----
+    const c2 = ws.getCell("B2");
     c2.value = inv.tipo || "FC";
     c2.font = { size: 10, name: "Calibri" };
 
-    // Fila 3 (row 2): Fecha — en G3
-    const c3 = ws.getCell("G3");
-    c3.value = new Date(inv.fechaEmision);
-    c3.numFmt = "DD/MM/YYYY";
+    // ---- FILA 3: Fecha en H3 ----
+    const c3 = ws.getCell("H3");
+    if (inv.fechaEmision) {
+      c3.value = new Date(inv.fechaEmision);
+      c3.numFmt = "DD/MM/YYYY";
+    }
     c3.font = { size: 10, name: "Calibri" };
 
-    // Fila 4 (row 3): Proveedor/Cliente — en A4:F4
-    ws.mergeCells("A4:F4");
+    // ---- FILA 4: Cliente en A4 ----
     const c4 = ws.getCell("A4");
     c4.value = inv.proveedor || "";
     c4.font = { bold: true, size: 11, name: "Calibri" };
 
-    // Fila 9 (row 8): Proveedor repetido (estilo original) — en A9
-    ws.getCell("A9").value = inv.proveedor || "";
-    ws.getCell("A9").font = { size: 9, name: "Calibri", color: { argb: GRIS_TEXT } };
+    // ---- FILA 5-6: Vacíos (dirección, ciudad) ----
+    // Se dejan vacíos porque no tenemos esos datos
 
-    // Fila 12 (row 11): Encabezados de items
-    const headerRow = 11;
+    // ---- FILA 7: CONTADO ----
+    ws.getCell("A7").value = "CONTADO";
+    ws.getCell("A7").font = { size: 10, name: "Calibri" };
+
+    // ---- FILA 9: CONTACTO + REMITO ----
+    ws.getCell("A9").value = "CONTACTO :";
+    ws.getCell("A9").font = { size: 9, name: "Calibri" };
+    ws.getCell("G9").value = "REMITO N° 00000000";
+    ws.getCell("G9").font = { size: 9, name: "Calibri", color: { argb: GRIS_TEXT } };
+
+    // ---- FILA 12: Encabezados de productos ----
+    // Estructura exacta del original: A=CANTIDAD, B=CODIGO, D=DESCRIPCION, G=P.UNI, H=TOTAL
+    const headerRow = 11; // 0-indexed = fila 12 en Excel
     const headers = [
-      { col: "B", label: "CANTIDAD" },
-      { col: "C", label: "CODIGO" },
-      { col: "D", label: "DESCRIPCION" },
-      { col: "G", label: "P.UNI" },
-      { col: "H", label: "TOTAL" },
+      { col: 0, label: "CANTIDAD" },  // A
+      { col: 1, label: "CODIGO" },     // B
+      { col: 3, label: "DESCRIPCION" }, // D
+      { col: 6, label: "P.UNI" },      // G
+      { col: 7, label: "TOTAL" },      // H
     ];
     for (const h of headers) {
-      const cell = ws.getCell(`${h.col}${headerRow}`);
+      const cell = ws.getRow(headerRow + 1).getCell(h.col + 1); // +1 because ExcelJS is 1-indexed
       cell.value = h.label;
       cell.font = { bold: true, size: 10, name: "Calibri" };
       cell.alignment = { horizontal: "center" };
-      cell.border = BORDE_NEGRO;
+      cell.border = {
+        bottom: { style: "thin" as const, color: { argb: "FF000000" } },
+        top: { style: "thin" as const, color: { argb: "FF000000" } },
+        left: { style: "thin" as const, color: { argb: "FF000000" } },
+        right: { style: "thin" as const, color: { argb: "FF000000" } },
+      };
     }
 
-    // Items
-    let row = headerRow + 1;
+    // ---- FILA 12+: Productos ----
+    let row = headerRow + 2; // Empezar en fila 13 (0-indexed 12)
     for (const item of inv.items) {
-      // CANTIDAD
-      ws.getCell(`B${row}`).value = item.cantidad;
-      ws.getCell(`B${row}`).alignment = { horizontal: "right" };
-      ws.getCell(`B${row}`).numFmt = "#,##0";
-      ws.getCell(`B${row}`).border = BORDE_NEGRO;
+      const currentRow = ws.getRow(row + 1); // ExcelJS 1-indexed
 
-      // CODIGO
-      ws.getCell(`C${row}`).value = item.codigo || "";
-      ws.getCell(`C${row}`).font = { size: 10, name: "Calibri" };
-      ws.getCell(`C${row}`).border = BORDE_NEGRO;
+      // A = CANTIDAD
+      const cellA = currentRow.getCell(1);
+      cellA.value = item.cantidad;
+      cellA.alignment = { horizontal: "right" };
+      cellA.numFmt = "#,##0";
+      cellA.border = {
+        bottom: { style: "thin", color: { argb: "FF000000" } },
+        top: { style: "thin", color: { argb: "FF000000" } },
+        left: { style: "thin", color: { argb: "FF000000" } },
+        right: { style: "thin", color: { argb: "FF000000" } },
+      };
 
-      // DESCRIPCION — merge D:F
-      ws.mergeCells(`D${row}:F${row}`);
-      ws.getCell(`D${row}`).value = item.producto;
-      ws.getCell(`D${row}`).font = { size: 10, name: "Calibri" };
-      ws.getCell(`D${row}`).border = BORDE_NEGRO;
+      // B = CODIGO
+      const cellB = currentRow.getCell(2);
+      cellB.value = item.codigo || "";
+      cellB.font = { size: 10, name: "Calibri" };
+      cellB.border = {
+        bottom: { style: "thin", color: { argb: "FF000000" } },
+        top: { style: "thin", color: { argb: "FF000000" } },
+        left: { style: "thin", color: { argb: "FF000000" } },
+        right: { style: "thin", color: { argb: "FF000000" } },
+      };
 
-      // P.UNI
-      ws.getCell(`G${row}`).value = item.valorUnit;
-      ws.getCell(`G${row}`).alignment = { horizontal: "right" };
-      ws.getCell(`G${row}`).numFmt = "#,##0.00";
-      ws.getCell(`G${row}`).border = BORDE_NEGRO;
+      // D = DESCRIPCION (merge D:F)
+      ws.mergeCells(`D${row + 1}:F${row + 1}`);
+      const cellD = currentRow.getCell(4);
+      cellD.value = item.producto;
+      cellD.font = { size: 10, name: "Calibri" };
+      cellD.border = {
+        bottom: { style: "thin", color: { argb: "FF000000" } },
+        top: { style: "thin", color: { argb: "FF000000" } },
+        left: { style: "thin", color: { argb: "FF000000" } },
+        right: { style: "thin", color: { argb: "FF000000" } },
+      };
 
-      // TOTAL
-      ws.getCell(`H${row}`).value = item.subtotal;
-      ws.getCell(`H${row}`).alignment = { horizontal: "right" };
-      ws.getCell(`H${row}`).numFmt = "#,##0.00";
-      ws.getCell(`H${row}`).border = BORDE_NEGRO;
+      // G = P.UNI
+      const cellG = currentRow.getCell(7);
+      cellG.value = item.valorUnit;
+      cellG.alignment = { horizontal: "right" };
+      cellG.numFmt = "#,##0.00";
+      cellG.border = {
+        bottom: { style: "thin", color: { argb: "FF000000" } },
+        top: { style: "thin", color: { argb: "FF000000" } },
+        left: { style: "thin", color: { argb: "FF000000" } },
+        right: { style: "thin", color: { argb: "FF000000" } },
+      };
+
+      // H = TOTAL
+      const cellH = currentRow.getCell(8);
+      cellH.value = item.subtotal;
+      cellH.alignment = { horizontal: "right" };
+      cellH.numFmt = "#,##0.00";
+      cellH.border = {
+        bottom: { style: "thin", color: { argb: "FF000000" } },
+        top: { style: "thin", color: { argb: "FF000000" } },
+        left: { style: "thin", color: { argb: "FF000000" } },
+        right: { style: "thin", color: { argb: "FF000000" } },
+      };
 
       row++;
     }
 
-    // Fila TOTAL
-    ws.mergeCells(`D${row}:F${row}`);
-    ws.getCell(`D${row}`).value = "TOTAL";
-    ws.getCell(`D${row}`).font = { bold: true, size: 10, name: "Calibri" };
-    ws.getCell(`D${row}`).alignment = { horizontal: "right" };
+    // ---- FILA TOTAL (2 filas después del último producto, como en el original) ----
+    const totalRow = row + 1; // Dejar una fila de espacio
+    ws.mergeCells(`D${totalRow + 1}:F${totalRow + 1}`);
+    const totalLabel = ws.getRow(totalRow + 1).getCell(4);
+    totalLabel.value = "TOTAL";
+    totalLabel.font = { bold: true, size: 10, name: "Calibri" };
+    totalLabel.alignment = { horizontal: "right" };
 
-    ws.getCell(`H${row}`).value = inv.total;
-    ws.getCell(`H${row}`).font = { bold: true, size: 10, name: "Calibri" };
-    ws.getCell(`H${row}`).alignment = { horizontal: "right" };
-    ws.getCell(`H${row}`).numFmt = "#,##0.00";
-    ws.getCell(`H${row}`).border = BORDE_NEGRO;
+    const totalVal = ws.getRow(totalRow + 1).getCell(8);
+    totalVal.value = inv.total;
+    totalVal.font = { bold: true, size: 10, name: "Calibri" };
+    totalVal.alignment = { horizontal: "right" };
+    totalVal.numFmt = "#,##0.00";
+    totalVal.border = {
+      bottom: { style: "thin", color: { argb: "FF000000" } },
+      top: { style: "thin", color: { argb: "FF000000" } },
+      left: { style: "thin", color: { argb: "FF000000" } },
+      right: { style: "thin", color: { argb: "FF000000" } },
+    };
   }
-
-  // Hoja BaseDeDatos al principio
-  agregarHojaBaseDeDatos(workbook, invoices);
 
   const buffer = await workbook.xlsx.writeBuffer();
   return new NextResponse(buffer, {
@@ -209,64 +263,9 @@ async function exportarFormatoOriginal(invoices: any[]) {
 }
 
 // ============================================================
-// Agregar hoja BaseDeDatos resumida al workbook de formato original
-// ============================================================
-function agregarHojaBaseDeDatos(workbook: ExcelJS.Workbook, invoices: any[]) {
-  // Mover BaseDeDatos al inicio
-  const bd = workbook.insertWorksheet(1, "BaseDeDatos", {
-    properties: { tabColor: { argb: MORADO } },
-  });
-
-  bd.mergeCells("A1:H1");
-  const titulo = bd.getCell("A1");
-  titulo.value = "BASE DE DATOS - FACTURAS";
-  titulo.font = { bold: true, size: 14, color: { argb: BLANCO }, name: "Calibri" };
-  titulo.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MORADO } };
-  titulo.alignment = { horizontal: "center", vertical: "middle" };
-  bd.getRow(1).height = 36;
-
-  const bdHeaders = ["N° Factura", "Tipo", "Fecha", "Codigo", "Descripcion", "Cantidad", "P.Unitario", "Subtotal"];
-  const bdWidths = [20, 7, 13, 12, 45, 11, 14, 14];
-  for (let i = 0; i < bdHeaders.length; i++) {
-    bd.getColumn(i + 1).width = bdWidths[i];
-    const cell = bd.getRow(2).getCell(i + 1);
-    cell.value = bdHeaders[i];
-    cell.font = { bold: true, size: 10, color: { argb: BLANCO }, name: "Calibri" };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MORADO_OSCURO } };
-    cell.alignment = { horizontal: i >= 5 ? "right" : "left", vertical: "middle" };
-    cell.border = BORDE_NEGRO;
-  }
-  bd.getRow(2).height = 24;
-
-  let bdRow = 3;
-  for (const inv of invoices) {
-    for (const item of inv.items) {
-      bd.getRow(bdRow).getCell(1).value = inv.numero;
-      bd.getRow(bdRow).getCell(2).value = inv.tipo || "FC";
-      bd.getRow(bdRow).getCell(3).value = formatoFecha(inv.fechaEmision?.toISOString?.() || "");
-      bd.getRow(bdRow).getCell(4).value = item.codigo || "";
-      bd.getRow(bdRow).getCell(5).value = item.producto;
-      bd.getRow(bdRow).getCell(6).value = item.cantidad;
-      bd.getRow(bdRow).getCell(7).value = item.valorUnit;
-      bd.getRow(bdRow).getCell(8).value = item.subtotal;
-      for (let c = 1; c <= 8; c++) {
-        const cell = bd.getRow(bdRow).getCell(c);
-        cell.font = { size: 10, name: "Calibri" };
-        cell.border = BORDE_NEGRO;
-        if (c >= 6) cell.numFmt = "#,##0.00";
-      }
-      bdRow++;
-    }
-  }
-  bd.autoFilter = { from: { row: 2, column: 1 }, to: { row: bdRow - 1, column: 8 } };
-  bd.views = [{ state: "frozen", ySplit: 2 }];
-}
-
-// ============================================================
 // FORMATO BASE DE DATOS — Columnas que pidió el usuario:
 // Número de Factura | Fecha de Emisión | Nombre del Cliente |
-// Cantidad de Productos Emitidos | Descripción/Nombre del Producto |
-// Costo de dicho Producto | (Separado) Identificador de hoja Excel
+// Cantidad | Descripción | Costo Unitario | Subtotal | Hoja Origen
 // ============================================================
 async function exportarBaseDeDatos(invoices: any[]) {
   const workbook = new ExcelJS.Workbook();
@@ -274,14 +273,14 @@ async function exportarBaseDeDatos(invoices: any[]) {
   workbook.created = new Date();
 
   // ============================================================
-  // HOJA 1: BASE DE DATOS (formato solicitado por el usuario)
+  // HOJA 1: BASE DE DATOS
   // ============================================================
   const bd = workbook.addWorksheet("BaseDeDatos", {
     properties: { tabColor: { argb: MORADO } },
   });
 
   // Título
-  bd.mergeCells("A1:H1");
+  bd.mergeCells("A1:I1");
   const titulo = bd.getCell("A1");
   titulo.value = "BASE DE DATOS - FACTURAS";
   titulo.font = { bold: true, size: 16, color: { argb: BLANCO }, name: "Calibri" };
@@ -291,7 +290,7 @@ async function exportarBaseDeDatos(invoices: any[]) {
 
   // Subtítulo
   const totalLineas = invoices.reduce((s: number, i: any) => s + i.items.length, 0);
-  bd.mergeCells("A2:H2");
+  bd.mergeCells("A2:I2");
   const subtitulo = bd.getCell("A2");
   subtitulo.value = `Generado el ${formatoFecha(new Date().toISOString())} | ${invoices.length} factura(s) | ${totalLineas} línea(s) de producto`;
   subtitulo.font = { size: 9, color: { argb: GRIS_TEXT }, italic: true, name: "Calibri" };
@@ -299,7 +298,7 @@ async function exportarBaseDeDatos(invoices: any[]) {
   subtitulo.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MORADO_CLARO } };
   bd.getRow(2).height = 22;
 
-  // Encabezados
+  // Encabezados — exactamente los campos que pidió el usuario
   const headers = [
     "Número de Factura",
     "Fecha de Emisión",
@@ -309,6 +308,7 @@ async function exportarBaseDeDatos(invoices: any[]) {
     "Costo Unitario",
     "Subtotal",
     "Hoja de Origen",
+    "Archivo de Origen",
   ];
 
   const headerRow = bd.addRow(headers);
@@ -329,10 +329,11 @@ async function exportarBaseDeDatos(invoices: any[]) {
     { width: 14, key: "fecha" },
     { width: 35, key: "cliente" },
     { width: 11, key: "cantidad" },
-    { width: 45, key: "producto" },
+    { width: 50, key: "producto" },
     { width: 15, key: "valorUnit" },
     { width: 15, key: "subtotal" },
     { width: 20, key: "hojaOrigen" },
+    { width: 30, key: "archivoOrigen" },
   ];
 
   // Datos
@@ -348,6 +349,7 @@ async function exportarBaseDeDatos(invoices: any[]) {
         item.valorUnit,
         item.subtotal,
         inv.hojaOrigen || "",
+        inv.archivoOrigen || "",
       ]);
 
       row.height = 20;
@@ -379,7 +381,7 @@ async function exportarBaseDeDatos(invoices: any[]) {
 
   // Fila de totales
   if (invoices.length > 0) {
-    const totalRow = bd.addRow(Array(8).fill(""));
+    const totalRow = bd.addRow(Array(9).fill(""));
     bd.mergeCells(`A${rowIndex}:C${rowIndex}`);
     const totalLabel = bd.getCell(`A${rowIndex}`);
     totalLabel.value = `TOTALES (${rowIndex - 3} líneas de producto)`;
@@ -409,7 +411,7 @@ async function exportarBaseDeDatos(invoices: any[]) {
     cellSub.alignment = { horizontal: "right", vertical: "middle" };
     aplicarBorde(cellSub, MORADO);
 
-    for (const c of [1, 2, 3, 5, 6, 8]) {
+    for (const c of [1, 2, 3, 5, 6, 8, 9]) {
       const celda = totalRow.getCell(c);
       celda.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MORADO } };
       aplicarBorde(celda, MORADO);
@@ -426,7 +428,7 @@ async function exportarBaseDeDatos(invoices: any[]) {
   // HOJA 2: TRAZABILIDAD
   // ============================================================
   const traza = workbook.addWorksheet("Trazabilidad", {
-    properties: { tabColor: { argb: "FFD97706" } },
+    properties: { tabColor: { argb: "FF0EA5E9" } },
   });
 
   traza.mergeCells("A1:F1");
@@ -487,7 +489,7 @@ async function exportarBaseDeDatos(invoices: any[]) {
     row.getCell(5).alignment = { horizontal: "right" };
 
     if (inv.advertencias) {
-      row.getCell(6).font = { size: 9, name: "Calibri", color: { argb: "FFB45309" } };
+      row.getCell(6).font = { size: 9, name: "Calibri", color: { argb: "FF0284C7" } };
     }
 
     trazaRow++;

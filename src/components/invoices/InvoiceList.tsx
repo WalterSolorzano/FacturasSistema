@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Search, Download, Trash2, ChevronLeft, ChevronRight, FileText, X, Filter, ShieldCheck, FileSpreadsheet, AlertTriangle } from "lucide-react";
+import { Search, Download, Trash2, ChevronLeft, ChevronRight, FileText, X, Filter, ShieldCheck, FileSpreadsheet, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -149,14 +149,14 @@ export function InvoiceList() {
               <CardContent className="p-4 sm:p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3 min-w-0 flex-1">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${warns.length > 0 ? "bg-amber-100" : "bg-purple-100"}`}>
-                      {warns.length > 0 ? <AlertTriangle className="w-5 h-5 text-amber-600" /> : <ShieldCheck className="w-5 h-5 text-purple-800" />}
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${warns.length > 0 ? "bg-sky-100" : "bg-purple-100"}`}>
+                      {warns.length > 0 ? <AlertCircle className="w-5 h-5 text-sky-600" /> : <ShieldCheck className="w-5 h-5 text-purple-800" />}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-semibold text-stone-900">{inv.numero}</p>
                         {inv.tipo && <Badge variant="secondary" className="text-xs px-2 py-0.5 bg-stone-100">{inv.tipo}</Badge>}
-                        {warns.length > 0 && <Badge className="text-xs px-1.5 py-0 bg-amber-100 text-amber-700 border-amber-200">{warns.length} aviso(s)</Badge>}
+                        {warns.length > 0 && <Badge className="text-xs px-1.5 py-0 bg-sky-100 text-sky-700 border-sky-200">{warns.length} aviso(s)</Badge>}
                       </div>
                       <p className="text-xs text-stone-400 mt-0.5">
                         {formatDate(inv.fechaEmision)} | {inv.proveedor || "(sin cliente)"} | {inv.items.length} producto(s) | {inv.items.reduce((s, i) => s + i.cantidad, 0)} unidades
@@ -181,10 +181,10 @@ export function InvoiceList() {
 
                       {/* Advertencias expandidas */}
                       {isExpanded && warns.length > 0 && (
-                        <div className="mt-2 p-2 rounded bg-amber-50 border border-amber-100">
-                          <p className="text-xs font-semibold text-amber-600 mb-1">Advertencias de importación:</p>
+                        <div className="mt-2 p-2 rounded bg-sky-50 border border-sky-100">
+                          <p className="text-xs font-semibold text-sky-600 mb-1">Advertencias de importación:</p>
                           <ul className="space-y-0.5">
-                            {warns.map((w, wi) => <li key={wi} className="text-xs text-amber-700">- {w}</li>)}
+                            {warns.map((w, wi) => <li key={wi} className="text-xs text-sky-700">- {w}</li>)}
                           </ul>
                         </div>
                       )}
