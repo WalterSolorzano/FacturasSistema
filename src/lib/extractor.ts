@@ -13,6 +13,7 @@ export interface ProductoExtraido {
   _cantidadRaw?: string;
   _valorUnitRaw?: string;
   _subtotalRaw?: string;
+  _precioCero?: boolean; // true si cantidad > 0 pero precio = 0
 }
 
 export interface FacturaExtraida {
@@ -29,6 +30,8 @@ export interface FacturaExtraida {
   exito: boolean;
   _numeroDeHoja: boolean; // true si el "numero" vino del nombre de hoja (dato dudoso)
   _fechaDudosa: boolean;  // true si la fecha no se encontró explícitamente
+  _totalCalculado?: boolean; // true si el total se calculó (no encontrado en Excel)
+  _totalDiscrepancia?: string; // Descripción de la discrepancia total vs productos
 }
 
 // ============================================================
@@ -324,7 +327,7 @@ function extraerProductos(
   ];
 
   let filaActual = formato.filaHeader + 1;
-  const maxFilas = formato.filaHeader + 200;
+  const maxFilas = formato.filaHeader + 500; // Aumentar límite para hojas con mucho espacio
   let filasVaciasSeguidas = 0;
   let encontroProductos = false;
 
@@ -360,7 +363,7 @@ function extraerProductos(
 
     if (!descripcion && cantidad === 0) {
       filasVaciasSeguidas++;
-      if (encontroProductos && filasVaciasSeguidas >= 2) break;
+      if (encontroProductos && filasVaciasSeguidas >= 3) break; // Más tolerancia
       if (!encontroProductos && filasVaciasSeguidas >= 10) break;
       filaActual++;
       continue;
@@ -375,9 +378,14 @@ function extraerProductos(
     if (descripcion && cantidad > 0) {
       encontroProductos = true;
 
+      // ADVERTENCIA: precio = 0 con cantidad > 0
+      const precioCero = pUnit === 0 && totalItem === 0;
+      if (precioCero) {
+        const descCorta = descripcion.length > 40 ? descripcion.substring(0, 40) + "..." : descripcion;
+        advertencias.push(`Fila ${filaActual + 1}: "${descCorta}" × ${cantidad} uds. con precio $0 — verificar si es correcto`);
+      }
+
       // Calcular subtotal: SOLO si el Excel no tiene uno.
-      // Si el Excel tiene subtotal > 0, usarlo. Si es 0, calcularlo.
-      // Esto NO inventa datos: es una derivación matemática de datos reales.
       let subtotal: number;
       if (totalItem > 0) {
         subtotal = totalItem;
@@ -394,6 +402,7 @@ function extraerProductos(
         _cantidadRaw: cantidadRaw,
         _valorUnitRaw: pUnitRaw,
         _subtotalRaw: subtotalRaw,
+        _precioCero: precioCero,
       });
     }
 
@@ -404,35 +413,54 @@ function extraerProductos(
 }
 
 // ============================================================
-// EXTRAER TOTAL GENERAL
+// EXTRAER TOTAL GENERAL — BUSCA EN TODA LA HOJA
+// FIX: Antes solo buscaba +20 filas, ahora busca hasta el final
 // ============================================================
 function extraerTotalGeneral(
   hoja: XLSX.WorkSheet,
   formato: FormatoHoja,
   filaInicio: number,
-  rango: XLSX.Range
-): number {
-  const maxBuscar = Math.min(rango.e.r, filaInicio + 20);
-
-  for (let r = filaInicio; r <= maxBuscar; r++) {
-    for (let c = 0; c <= formato.colTotal; c++) {
+  rango: XLSX.Range,
+  advertencias: string[]
+): { total: number; encontrado: boolean; fila: number } {
+  // 1. Buscar etiqueta "TOTAL" en CUALQUIER fila desde filaInicio hasta el final
+  for (let r = filaInicio; r <= rango.e.r; r++) {
+    for (let c = 0; c <= Math.min(rango.e.c, formato.colTotal + 1); c++) {
       const val = getStr(hoja, r, c).toUpperCase();
       if (val === "TOTAL" || val.startsWith("TOTAL ") || val.startsWith("TOTAL:")) {
+        // Intentar obtener el valor numérico de la fila TOTAL
+        // Probar la columna TOTAL de la cabecera
         const totalVal = getNum(hoja, r, formato.colTotal);
-        if (totalVal > 0) return totalVal;
+        if (totalVal > 0) return { total: totalVal, encontrado: true, fila: r };
 
-        const totalVal2 = getNum(hoja, r, formato.colTotal + 1);
-        if (totalVal2 > 0) return totalVal2;
+        // Probar la columna siguiente a donde encontramos "TOTAL"
+        if (c + 1 <= rango.e.c) {
+          const totalVal2 = getNum(hoja, r, c + 1);
+          if (totalVal2 > 0) return { total: totalVal2, encontrado: true, fila: r };
+        }
 
-        if (c < formato.colTotal) {
-          const totalVal3 = getNum(hoja, r, c + 1);
-          if (totalVal3 > 0) return totalVal3;
+        // Probar la columna anterior (TOTAL puede estar a la izquierda del valor)
+        if (c > 0 && c - 1 >= formato.colTotal) {
+          const totalVal3 = getNum(hoja, r, c - 1);
+          if (totalVal3 > 0) return { total: totalVal3, encontrado: true, fila: r };
         }
       }
     }
   }
 
-  return 0;
+  // 2. FALLBACK: Último valor numérico en la columna TOTAL
+  // Muchas hojas del Excel no tienen etiqueta "TOTAL", solo el número al final
+  for (let r = rango.e.r; r >= filaInicio; r--) {
+    const val = getNum(hoja, r, formato.colTotal);
+    if (val > 0) {
+      advertencias.push(
+        `Total ${val.toLocaleString("es-AR")} tomado de la fila ${r + 1} (sin etiqueta "TOTAL" visible)`
+      );
+      return { total: val, encontrado: false, fila: r };
+    }
+  }
+
+  return { total: 0, encontrado: false, fila: -1 };
 }
 
 // ============================================================
@@ -460,6 +488,7 @@ export function extraerFacturaDeHoja(
     exito: false,
     _numeroDeHoja: false,
     _fechaDudosa: false,
+    _totalCalculado: false,
   };
 
   if (!hoja["!ref"]) {
@@ -508,32 +537,42 @@ export function extraerFacturaDeHoja(
   // 6. Extraer productos
   resultado.productos = extraerProductos(hoja, formato, rango, advertencias);
 
-  // 7. Extraer total general
+  // 7. Extraer total general — AHORA BUSCA EN TODA LA HOJA
   const filaInicioTotal = formato.filaHeader + 1;
-  const totalEncontrado = extraerTotalGeneral(hoja, formato, filaInicioTotal, rango);
+  const totalResult = extraerTotalGeneral(hoja, formato, filaInicioTotal, rango, advertencias);
 
-  if (totalEncontrado > 0) {
-    resultado.total = totalEncontrado;
+  if (totalResult.total > 0) {
+    resultado.total = totalResult.total;
   } else {
     // Calcular desde productos (dato derivado, no inventado)
     resultado.total = Math.round(
       resultado.productos.reduce((s, p) => s + p.subtotal, 0) * 100
     ) / 100;
     if (resultado.productos.length > 0) {
-      advertencias.push("Total calculado desde productos (no se encontró fila TOTAL en el Excel)");
+      resultado._totalCalculado = true;
+      advertencias.push("No se encontró total en el Excel — se calculó desde los productos");
     }
   }
 
-  // 8. Determinar éxito
+  // 8. Verificar discrepancia entre total del Excel y suma de productos
+  if (totalResult.encontrado && resultado.productos.length > 0) {
+    const sumaProductos = Math.round(
+      resultado.productos.reduce((s, p) => s + p.subtotal, 0) * 100
+    ) / 100;
+    if (Math.abs(totalResult.total - sumaProductos) > 0.02) {
+      const diff = Math.abs(totalResult.total - sumaProductos).toFixed(2);
+      resultado._totalDiscrepancia = `Excel: ${totalResult.total.toLocaleString("es-AR")} | Suma productos: ${sumaProductos.toLocaleString("es-AR")} | Diferencia: ${diff}`;
+      advertencias.push(
+        `Discrepancia de total: el Excel dice ${totalResult.total.toLocaleString("es-AR")} pero la suma de productos da ${sumaProductos.toLocaleString("es-AR")} (diferencia: ${diff})`
+      );
+    }
+  }
+
+  // 9. Determinar éxito
   resultado.exito = resultado.productos.length > 0;
 
   if (resultado.productos.length === 0) {
     resultado.errores.push("No se encontraron productos");
-  }
-
-  // Mover advertencias menos graves al array correcto
-  if (resultado.numero === "" && resultado.productos.length > 0) {
-    // Ya se manejó arriba
   }
 
   return resultado;

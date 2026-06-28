@@ -14,6 +14,8 @@ import {
   Eye,
   FileWarning,
   Info,
+  ExternalLink,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,18 +23,21 @@ import { Badge } from "@/components/ui/badge";
 import { useAppStore } from "@/lib/store";
 import { useToast } from "@/hooks/use-toast";
 
+interface ProductoPreview {
+  codigo: string;
+  producto: string;
+  cantidad: number;
+  valorUnit: number;
+  subtotal: number;
+  _precioCero?: boolean;
+}
+
 interface FacturaPreview {
   numero: string;
   tipo: string;
   fecha: string;
   proveedor: string;
-  productos: {
-    codigo: string;
-    producto: string;
-    cantidad: number;
-    valorUnit: number;
-    subtotal: number;
-  }[];
+  productos: ProductoPreview[];
   total: number;
   hoja: string;
   archivoOrigen: string;
@@ -41,6 +46,8 @@ interface FacturaPreview {
   exito: boolean;
   _numeroDeHoja: boolean;
   _fechaDudosa: boolean;
+  _totalCalculado?: boolean;
+  _totalDiscrepancia?: string;
 }
 
 interface ImportResult {
@@ -58,6 +65,12 @@ interface ExistingInvoice {
   proveedor: string;
 }
 
+// Datos crudos de una hoja Excel para el visor
+interface CeldaRaw {
+  coord: string;
+  valor: string | number | boolean | null;
+}
+
 function formatMoney(v: number): string {
   return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 2 }).format(v);
 }
@@ -67,7 +80,7 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("es-AR");
 }
 
-type Paso = "subir" | "revision" | "confirmar" | "resultado";
+type Paso = "subir" | "revision" | "resultado";
 
 export function Importar() {
   const { triggerRefresh, setActiveTab, activeProjectId } = useAppStore();
@@ -81,7 +94,7 @@ export function Importar() {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
-  const [selectedAll, setSelectedAll] = useState(true);
+  const [selectedAll, setSelectedAll] = useState(false);
   const [importResult, setImportResult] = useState<{
     importadas: number;
     omitidasFecha: number;
@@ -91,6 +104,16 @@ export function Importar() {
 
   // Números que ya existen en la BD (solo informativo)
   const [numerosExistentes, setNumerosExistentes] = useState<Set<string>>(new Set());
+
+  // Archivo subido para "Ver en Excel"
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+
+  // Dialog para ver datos del Excel
+  const [viewingSheet, setViewingSheet] = useState<{
+    hoja: string;
+    datos: CeldaRaw[][];
+  } | null>(null);
+  const [loadingSheet, setLoadingSheet] = useState(false);
 
   // Cuando el resultado del análisis llega, verificar cuáles ya existen
   useEffect(() => {
@@ -117,6 +140,7 @@ export function Importar() {
     setResult(null);
     setNumerosExistentes(new Set());
     setPaso("subir");
+    setUploadedFile(file);
 
     try {
       const fd = new FormData();
@@ -128,11 +152,9 @@ export function Importar() {
 
       setResult(data);
 
-      // Seleccionar TODAS las exitosas por defecto
-      const exitosasIdx = new Set<number>();
-      data.facturas.forEach((f, i) => { if (f.exito) exitosasIdx.add(i); });
-      setSelected(exitosasIdx);
-      setSelectedAll(true);
+      // NO auto-seleccionar. El usuario revisa y decide.
+      setSelected(new Set());
+      setSelectedAll(false);
       setPaso("revision");
     } catch (err) {
       toast({
@@ -144,6 +166,50 @@ export function Importar() {
       setLoading(false);
     }
   }, [toast]);
+
+  // Ver datos del Excel para una hoja específica
+  const verEnExcel = useCallback(async (sheetName: string) => {
+    if (!uploadedFile) {
+      toast({ title: "Archivo no disponible", description: "El archivo original ya no está en memoria.", variant: "destructive" });
+      return;
+    }
+
+    setLoadingSheet(true);
+    try {
+      const buffer = await uploadedFile.arrayBuffer();
+      const XLSX = await import("xlsx");
+      const wb = XLSX.read(buffer, { type: "array" });
+      const ws = wb.Sheets[sheetName];
+      if (!ws || !ws["!ref"]) {
+        toast({ title: "Hoja vacía", description: `La hoja "${sheetName}" no tiene datos.` });
+        setLoadingSheet(false);
+        return;
+      }
+
+      const range = XLSX.utils.decode_range(ws["!ref"]);
+      const datos: CeldaRaw[][] = [];
+
+      for (let r = range.s.r; r <= range.e.r; r++) {
+        const row: CeldaRaw[] = [];
+        let hasData = false;
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          const addr = XLSX.utils.encode_cell({ r, c });
+          const cell = ws[addr];
+          const valor = cell?.v !== undefined ? cell.v : null;
+          const coord = XLSX.utils.encode_cell({ r, c });
+          row.push({ coord, valor });
+          if (valor !== null && valor !== "") hasData = true;
+        }
+        if (hasData) datos.push(row);
+      }
+
+      setViewingSheet({ hoja: sheetName, datos });
+    } catch {
+      toast({ title: "Error", description: "No se pudo leer la hoja del Excel.", variant: "destructive" });
+    } finally {
+      setLoadingSheet(false);
+    }
+  }, [uploadedFile, toast]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setDragOver(false);
@@ -158,7 +224,6 @@ export function Importar() {
 
   const confirmarImport = async () => {
     if (!result) return;
-    // El usuario decide: importar todo lo que seleccionó, punto.
     const facturasAImportar = result.facturas.filter((_, i) => selected.has(i));
     if (facturasAImportar.length === 0) {
       toast({ title: "Nada que importar", description: "Seleccioná al menos una factura.", variant: "destructive" });
@@ -204,6 +269,7 @@ export function Importar() {
     if (selectedAll) {
       setSelected(new Set()); setSelectedAll(false);
     } else {
+      // Seleccionar TODAS las exitosas
       const all = new Set<number>();
       result.facturas.forEach((f, i) => { if (f.exito) all.add(i); });
       setSelected(all); setSelectedAll(true);
@@ -219,6 +285,12 @@ export function Importar() {
   const sinFecha = result ? result.facturas.filter((f) => f._fechaDudosa || !f.fecha).length : 0;
   const yaExisten = result
     ? result.facturas.filter((f) => f.numero && numerosExistentes.has(f.numero)).length
+    : 0;
+  const conPrecioCero = result
+    ? result.facturas.filter((f) => f.productos.some((p) => p._precioCero)).length
+    : 0;
+  const conDiscrepancia = result
+    ? result.facturas.filter((f) => f._totalDiscrepancia).length
     : 0;
 
   // PASO: SUBIR ARCHIVO
@@ -255,14 +327,14 @@ export function Importar() {
           <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleFileInput} className="hidden" />
         </Card>
 
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-blue-50 border border-blue-200">
-          <FileSpreadsheet className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-blue-800"><strong>Formato esperado:</strong> Cada hoja del Excel debe ser una factura con las columnas CANTIDAD, CODIGO, DESCRIPCION, P.UNI y TOTAL. El sistema detecta automáticamente el formato.</p>
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-sky-50 border border-sky-200">
+          <FileSpreadsheet className="w-5 h-5 text-sky-600 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-sky-800"><strong>Formato esperado:</strong> Cada hoja del Excel debe ser una factura con las columnas CANTIDAD, CODIGO, DESCRIPCION, P.UNI y TOTAL. El sistema detecta automáticamente el formato.</p>
         </div>
 
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-green-50 border border-green-200">
-          <ShieldCheck className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-green-800"><strong>Vos decidís:</strong> El sistema lee los datos tal cual están. No se elimina ni se modifica nada automáticamente. Si un número ya existe, se te avisa pero vos elegís si lo importás igual. Un cliente puede comprar varias veces.</p>
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
+          <ShieldCheck className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-emerald-800"><strong>Vos revisás y decidís:</strong> El sistema lee los datos tal cual están. No se elimina ni se modifica nada automáticamente. Podés verificar cada factura contra el Excel original antes de confirmar. Un cliente puede comprar varias veces — eso no es duplicado.</p>
         </div>
       </div>
     );
@@ -279,8 +351,8 @@ export function Importar() {
 
         <Card className="border-0 shadow-sm">
           <CardContent className="p-8 text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-purple-100 flex items-center justify-center">
-              <CheckCircle2 className="w-8 h-8 text-purple-700" />
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-emerald-100 flex items-center justify-center">
+              <CheckCircle2 className="w-8 h-8 text-emerald-700" />
             </div>
             <h3 className="text-lg font-bold text-stone-900 mb-1">Importación completada</h3>
             <p className="text-3xl font-bold text-purple-700 my-3">{importResult.importadas} factura(s) importada(s)</p>
@@ -291,11 +363,11 @@ export function Importar() {
         </Card>
 
         {importResult.resumen && importResult.resumen.length > 0 && (
-          <Card className="border border-amber-200">
+          <Card className="border border-sky-200">
             <CardContent className="p-5">
-              <h4 className="font-semibold text-amber-700 mb-2">Resumen</h4>
+              <h4 className="font-semibold text-sky-700 mb-2">Resumen</h4>
               <ul className="space-y-1">
-                {importResult.resumen.map((r, i) => <li key={i} className="text-xs text-amber-600">- {r}</li>)}
+                {importResult.resumen.map((r, i) => <li key={i} className="text-xs text-sky-600">- {r}</li>)}
               </ul>
             </CardContent>
           </Card>
@@ -313,7 +385,7 @@ export function Importar() {
         )}
 
         <div className="flex gap-3">
-          <Button variant="outline" onClick={() => { setPaso("subir"); setResult(null); setImportResult(null); setNumerosExistentes(new Set()); if (fileRef.current) fileRef.current.value = ""; }}>
+          <Button variant="outline" onClick={() => { setPaso("subir"); setResult(null); setImportResult(null); setNumerosExistentes(new Set()); setUploadedFile(null); if (fileRef.current) fileRef.current.value = ""; }}>
             Importar otro archivo
           </Button>
           <Button onClick={() => setActiveTab("consultar")} className="bg-purple-800 hover:bg-purple-900 text-white font-semibold shadow-md shadow-purple-200">
@@ -324,215 +396,301 @@ export function Importar() {
     );
   }
 
-  // PASO: REVISION + CONFIRMAR
+  // PASO: REVISIÓN
   if (!result) return null;
 
   return (
-    <div className="space-y-5 animate-in fade-in max-w-4xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-stone-900">Revisar y confirmar</h2>
-          <p className="text-sm text-stone-500 mt-0.5">Verificá los datos. Seleccioná lo que querés importar.</p>
+    <>
+      <div className="space-y-5 animate-in fade-in max-w-4xl">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-stone-900">Revisión de datos</h2>
+            <p className="text-sm text-stone-500 mt-0.5">Revisá cada factura. Seleccioná las que querés importar.</p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => { setPaso("subir"); setResult(null); setNumerosExistentes(new Set()); setUploadedFile(null); if (fileRef.current) fileRef.current.value = ""; }}>
+            Volver
+          </Button>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => { setPaso("subir"); setResult(null); setNumerosExistentes(new Set()); if (fileRef.current) fileRef.current.value = ""; }}>
-          Volver
-        </Button>
-      </div>
 
-      {/* Barra de progreso */}
-      <div className="flex items-center gap-2 text-xs">
-        <div className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-purple-700" /><span className="font-medium text-purple-800">Paso 1: Cargar archivo</span></div>
-        <div className="w-8 h-px bg-purple-300" />
-        <div className="flex items-center gap-1.5"><Eye className="w-4 h-4 text-purple-700" /><span className="font-medium text-purple-800">Paso 2: Vos decidís qué importar</span></div>
-        <div className="w-8 h-px bg-stone-300" />
-        <div className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-stone-400" /><span className="text-stone-400">Paso 3: Confirmar</span></div>
-      </div>
+        {/* Barra de progreso */}
+        <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-purple-700" /><span className="font-medium text-purple-800">Paso 1: Cargar archivo</span></div>
+          <div className="w-8 h-px bg-purple-300" />
+          <div className="flex items-center gap-1.5"><Eye className="w-4 h-4 text-purple-700" /><span className="font-medium text-purple-800">Paso 2: Revisión</span></div>
+          <div className="w-8 h-px bg-stone-300" />
+          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-stone-400" /><span className="text-stone-400">Paso 3: Confirmar</span></div>
+        </div>
 
-      {/* Resumen */}
-      <Card className="border-0 shadow-sm">
-        <CardContent className="p-5">
-          <h3 className="font-semibold text-stone-900 mb-3">Resultado del análisis</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            <div className="p-3 rounded-lg bg-purple-50 text-center">
-              <p className="text-2xl font-bold text-purple-800">{result.exitosas}</p>
-              <p className="text-xs text-purple-700">Extraídas bien</p>
+        {/* Resumen */}
+        <Card className="border-0 shadow-sm">
+          <CardContent className="p-5">
+            <h3 className="font-semibold text-stone-900 mb-3">Resultado del análisis</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3 rounded-lg bg-purple-50 text-center">
+                <p className="text-2xl font-bold text-purple-800">{result.exitosas}</p>
+                <p className="text-xs text-purple-700">Extraídas</p>
+              </div>
+              <div className={`p-3 rounded-lg text-center ${result.conErrores > 0 ? "bg-rose-50" : "bg-stone-50"}`}>
+                <p className={`text-2xl font-bold ${result.conErrores > 0 ? "text-rose-600" : "text-stone-400"}`}>{result.conErrores}</p>
+                <p className="text-xs text-rose-500">Con errores</p>
+              </div>
+              <div className={`p-3 rounded-lg text-center ${conAdvertencias + conPrecioCero + conDiscrepancia > 0 ? "bg-sky-50" : "bg-stone-50"}`}>
+                <p className={`text-2xl font-bold ${conAdvertencias + conPrecioCero + conDiscrepancia > 0 ? "text-sky-600" : "text-stone-400"}`}>{conAdvertencias + conPrecioCero + conDiscrepancia}</p>
+                <p className="text-xs text-sky-600">Con avisos</p>
+              </div>
+              <div className={`p-3 rounded-lg text-center ${yaExisten > 0 ? "bg-slate-50" : "bg-stone-50"}`}>
+                <p className={`text-2xl font-bold ${yaExisten > 0 ? "text-slate-600" : "text-stone-400"}`}>{yaExisten}</p>
+                <p className="text-xs text-slate-500">Ya en BD</p>
+              </div>
             </div>
-            <div className={`p-3 rounded-lg text-center ${result.conErrores > 0 ? "bg-rose-50" : "bg-stone-50"}`}>
-              <p className={`text-2xl font-bold ${result.conErrores > 0 ? "text-rose-600" : "text-stone-400"}`}>{result.conErrores}</p>
-              <p className="text-xs text-rose-500">Con errores</p>
-            </div>
-            <div className={`p-3 rounded-lg text-center ${yaExisten > 0 ? "bg-blue-50" : "bg-stone-50"}`}>
-              <p className={`text-2xl font-bold ${yaExisten > 0 ? "text-blue-600" : "text-stone-400"}`}>{yaExisten}</p>
-              <p className="text-xs text-blue-500">Ya en BD</p>
-            </div>
-            <div className={`p-3 rounded-lg text-center ${conAdvertencias > 0 ? "bg-amber-50" : "bg-stone-50"}`}>
-              <p className={`text-2xl font-bold ${conAdvertencias > 0 ? "text-amber-600" : "text-stone-400"}`}>{conAdvertencias}</p>
-              <p className="text-xs text-amber-600">Con avisos</p>
-            </div>
-            <div className="p-3 rounded-lg bg-stone-50 text-center">
-              <p className="text-2xl font-bold text-stone-400">{result.vacias}</p>
-              <p className="text-xs text-stone-500">Hojas vacías</p>
-            </div>
-          </div>
 
-          {/* Nota sobre "ya en BD" */}
-          {yaExisten > 0 && (
-            <div className="flex items-start gap-2 mt-3 p-2.5 rounded-lg bg-blue-50 border border-blue-200">
-              <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-blue-700">
-                <strong>{yaExisten} factura(s)</strong> ya están en la base de datos. Se marcan con "Ya existe" para que decidas.
-                Si un cliente compró varias veces, es normal que aparezca.
+            {/* Nota informativa */}
+            <div className="flex items-start gap-2 mt-3 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
+              <ShieldCheck className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-emerald-700">
+                <strong>Vos decidís qué importar.</strong> Marcá las facturas que querés guardar.
+                Si un número ya existe, se te informa pero podés importarlo igual — un cliente puede comprar varias veces.
+                Usá el botón <strong>"Ver en Excel"</strong> para comprobar cualquier dato contra el original.
               </p>
             </div>
-          )}
-        </CardContent>
-      </Card>
 
-      {/* Lista de facturas */}
-      <Card className="border-0 shadow-sm">
-        <CardContent className="p-5">
-          <div className="flex items-center justify-between mb-3">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={selectedAll} onChange={toggleAll} className="w-4 h-4 rounded border-stone-300 text-purple-700 focus:ring-purple-500" />
-              <span className="text-sm font-medium text-stone-700">Seleccionar todas las válidas</span>
-            </label>
-            <span className="text-xs text-stone-400">{exitosasSeleccionadas} seleccionada(s)</span>
-          </div>
+            {yaExisten > 0 && (
+              <div className="flex items-start gap-2 mt-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                <Info className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-slate-600">
+                  <strong>{yaExisten} factura(s)</strong> ya están en la base de datos. Si son compras reales nuevas, es normal que aparezcan.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-          <div className="space-y-2 max-h-[450px] overflow-y-auto">
-            {result.facturas.map((fac, idx) => {
-              const tieneAdvertencias = fac.advertencias && fac.advertencias.length > 0;
-              const tieneFecha = fac.fecha && !fac._fechaDudosa;
-              const existeEnBD = fac.numero && numerosExistentes.has(fac.numero);
+        {/* Lista de facturas */}
+        <Card className="border-0 shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between mb-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={selectedAll} onChange={toggleAll} className="w-4 h-4 rounded border-stone-300 text-purple-700 focus:ring-purple-500" />
+                <span className="text-sm font-medium text-stone-700">Seleccionar todas las válidas</span>
+              </label>
+              <span className="text-xs text-stone-400">{exitosasSeleccionadas} seleccionada(s)</span>
+            </div>
 
-              return (
-                <div key={idx} className={`rounded-lg border p-3 transition-colors ${
-                  !fac.exito ? "border-rose-200 bg-rose-50/50 opacity-70" :
-                  fac._fechaDudosa ? "border-rose-200 bg-rose-50/30" :
-                  existeEnBD ? "border-blue-200 bg-blue-50/30" :
-                  tieneAdvertencias ? "border-amber-200 bg-amber-50/30" :
-                  selected.has(idx) ? "border-purple-300 bg-purple-50/50" :
-                  "border-stone-200 bg-white hover:bg-stone-50"
-                }`}>
-                  <div className="flex items-center gap-3">
-                    {fac.exito ? (
-                      <input type="checkbox" checked={selected.has(idx)} onChange={() => toggleSelect(idx)} className="w-4 h-4 rounded border-stone-300 text-purple-700 focus:ring-purple-500" />
-                    ) : (
-                      <XCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
-                    )}
+            <div className="space-y-2 max-h-[500px] overflow-y-auto">
+              {result.facturas.map((fac, idx) => {
+                const tieneAdvertencias = fac.advertencias && fac.advertencias.length > 0;
+                const tieneFecha = fac.fecha && !fac._fechaDudosa;
+                const existeEnBD = fac.numero && numerosExistentes.has(fac.numero);
+                const tienePrecioCero = fac.productos.some((p) => p._precioCero);
+                const tieneDiscrepancia = !!fac._totalDiscrepancia;
+                const tieneTotalCalculado = !!fac._totalCalculado;
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-sm text-stone-900">{fac.numero || "(sin número)"}</span>
-                        {fac.tipo && <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-stone-100">{fac.tipo}</Badge>}
-                        {/* Indicadores — informativos, no bloqueantes */}
-                        {existeEnBD && <Badge className="text-xs px-1.5 py-0 bg-blue-100 text-blue-700 border-blue-200">Ya existe</Badge>}
-                        {fac._numeroDeHoja && <Badge className="text-xs px-1.5 py-0 bg-amber-100 text-amber-700 border-amber-200">N° dudoso</Badge>}
-                        {!tieneFecha && fac.exito && <Badge className="text-xs px-1.5 py-0 bg-rose-100 text-rose-700 border-rose-200">Sin fecha</Badge>}
-                        {tieneAdvertencias && <Badge className="text-xs px-1.5 py-0 bg-amber-100 text-amber-700 border-amber-200">{fac.advertencias!.length} aviso(s)</Badge>}
-                        <span className="text-xs text-stone-400">{fac.hoja}</span>
-                      </div>
-                      <p className="text-xs text-stone-600 mt-0.5">
-                        {formatDate(fac.fecha)} | {fac.proveedor || "(sin cliente)"} | {fac.productos.length} prod. | {fac.productos.reduce((s, p) => s + p.cantidad, 0)} uds. | <span className="font-semibold">{formatMoney(fac.total)}</span>
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {fac.exito ? <CheckCircle2 className="w-5 h-5 text-purple-700" /> : <AlertTriangle className="w-5 h-5 text-amber-500" />}
-                      <button onClick={() => toggleExpand(idx)} className="p-1 hover:bg-stone-200 rounded cursor-pointer">
-                        {expanded.has(idx) ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  {expanded.has(idx) && (
-                    <div className="mt-3 pt-3 border-t border-stone-200 space-y-2">
-                      {/* Origen del dato */}
-                      <div className="flex items-center gap-2 text-xs text-stone-500">
-                        <FileSpreadsheet className="w-3.5 h-3.5" />
-                        <span>Archivo: <strong>{fac.archivoOrigen || "desconocido"}</strong> | Hoja: <strong>{fac.hoja}</strong></span>
-                      </div>
-
-                      {/* Aviso de "ya existe" */}
-                      {existeEnBD && (
-                        <div className="p-2 rounded bg-blue-50 border border-blue-100">
-                          <p className="text-xs text-blue-600 flex items-center gap-1">
-                            <Info className="w-3.5 h-3.5" />
-                            Este número ya está en la base de datos. Si es una compra nueva del mismo cliente, es normal. Vos decidís si lo importás.
-                          </p>
-                        </div>
+                return (
+                  <div key={idx} className={`rounded-lg border p-3 transition-colors ${
+                    !fac.exito ? "border-rose-200 bg-rose-50/50 opacity-70" :
+                    fac._fechaDudosa ? "border-rose-200 bg-rose-50/30" :
+                    existeEnBD ? "border-slate-200 bg-slate-50/30" :
+                    selected.has(idx) ? "border-purple-300 bg-purple-50/50" :
+                    "border-stone-200 bg-white hover:bg-stone-50"
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      {fac.exito ? (
+                        <input type="checkbox" checked={selected.has(idx)} onChange={() => toggleSelect(idx)} className="w-4 h-4 rounded border-stone-300 text-purple-700 focus:ring-purple-500" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
                       )}
 
-                      {/* Advertencias */}
-                      {tieneAdvertencias && (
-                        <div className="p-2 rounded bg-amber-50 border border-amber-100">
-                          <p className="text-xs font-semibold text-amber-600 uppercase mb-1 flex items-center gap-1">
-                            <FileWarning className="w-3.5 h-3.5" /> Advertencias
-                          </p>
-                          <ul className="space-y-0.5">
-                            {fac.advertencias!.map((w, wi) => <li key={wi} className="text-xs text-amber-700">- {w}</li>)}
-                          </ul>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm text-stone-900">{fac.numero || "(sin número)"}</span>
+                          {fac.tipo && <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-stone-100">{fac.tipo}</Badge>}
+                          {/* Indicadores — informativos, no bloqueantes */}
+                          {existeEnBD && <Badge className="text-xs px-1.5 py-0 bg-slate-100 text-slate-700 border-slate-200">Ya existe</Badge>}
+                          {fac._numeroDeHoja && <Badge className="text-xs px-1.5 py-0 bg-violet-100 text-violet-700 border-violet-200">N° dudoso</Badge>}
+                          {!tieneFecha && fac.exito && <Badge className="text-xs px-1.5 py-0 bg-rose-100 text-rose-700 border-rose-200">Sin fecha</Badge>}
+                          {tienePrecioCero && <Badge className="text-xs px-1.5 py-0 bg-orange-100 text-orange-700 border-orange-200">$0</Badge>}
+                          {tieneDiscrepancia && <Badge className="text-xs px-1.5 py-0 bg-sky-100 text-sky-700 border-sky-200">Discrepancia</Badge>}
+                          {tieneTotalCalculado && !tieneDiscrepancia && <Badge className="text-xs px-1.5 py-0 bg-sky-100 text-sky-700 border-sky-200">Total calculado</Badge>}
+                          {tieneAdvertencias && <Badge className="text-xs px-1.5 py-0 bg-sky-100 text-sky-700 border-sky-200">{fac.advertencias!.length} aviso(s)</Badge>}
+                          <span className="text-xs text-stone-400">{fac.hoja}</span>
                         </div>
-                      )}
+                        <p className="text-xs text-stone-600 mt-0.5">
+                          {formatDate(fac.fecha)} | {fac.proveedor || "(sin cliente)"} | {fac.productos.length} prod. | {fac.productos.reduce((s, p) => s + p.cantidad, 0)} uds. | <span className="font-semibold">{formatMoney(fac.total)}</span>
+                        </p>
+                      </div>
 
-                      {/* Productos */}
-                      {fac.productos.length > 0 && (
-                        <div>
-                          <p className="text-xs font-semibold text-stone-500 uppercase mb-1">Productos</p>
-                          <div className="space-y-0.5">
-                            {fac.productos.map((p, pi) => (
-                              <p key={pi} className="text-xs text-stone-600">
-                                <span className="text-stone-400">{p.cantidad}x</span>{" "}
-                                {p.codigo && <span className="text-stone-400">[{p.codigo}] </span>}
-                                {p.producto}{" "}
-                                <span className="text-stone-400">- {formatMoney(p.subtotal)}</span>
-                              </p>
-                            ))}
+                      <div className="flex items-center gap-1">
+                        {/* Botón Ver en Excel */}
+                        <button
+                          onClick={() => verEnExcel(fac.hoja)}
+                          disabled={loadingSheet}
+                          className="p-1.5 hover:bg-sky-50 rounded-lg transition-colors cursor-pointer group"
+                          title="Ver datos originales en el Excel"
+                        >
+                          <ExternalLink className={`w-4 h-4 text-sky-500 group-hover:text-sky-700 ${loadingSheet ? "animate-pulse" : ""}`} />
+                        </button>
+
+                        {fac.exito ? <CheckCircle2 className="w-5 h-5 text-purple-700" /> : <AlertTriangle className="w-5 h-5 text-rose-500" />}
+                        <button onClick={() => toggleExpand(idx)} className="p-1 hover:bg-stone-200 rounded cursor-pointer">
+                          {expanded.has(idx) ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {expanded.has(idx) && (
+                      <div className="mt-3 pt-3 border-t border-stone-200 space-y-2">
+                        {/* Origen del dato */}
+                        <div className="flex items-center gap-2 text-xs text-stone-500">
+                          <FileSpreadsheet className="w-3.5 h-3.5" />
+                          <span>Archivo: <strong>{fac.archivoOrigen || "desconocido"}</strong> | Hoja: <strong>{fac.hoja}</strong></span>
+                          <button
+                            onClick={() => verEnExcel(fac.hoja)}
+                            className="ml-2 text-sky-600 hover:text-sky-800 underline cursor-pointer text-xs"
+                          >
+                            Ver en Excel
+                          </button>
+                        </div>
+
+                        {/* Aviso de "ya existe" */}
+                        {existeEnBD && (
+                          <div className="p-2 rounded bg-slate-50 border border-slate-100">
+                            <p className="text-xs text-slate-600 flex items-center gap-1">
+                              <Info className="w-3.5 h-3.5" />
+                              Este número ya está en la base de datos. Si es una compra nueva del mismo cliente, es normal. Vos decidís.
+                            </p>
                           </div>
-                        </div>
-                      )}
+                        )}
 
-                      {/* Errores */}
-                      {fac.errores.length > 0 && (
-                        <div>
-                          <p className="text-xs font-semibold text-rose-600 uppercase mb-1">Errores</p>
-                          <ul className="space-y-0.5">{fac.errores.map((err, ei) => <li key={ei} className="text-xs text-rose-700">- {err}</li>)}</ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                        {/* Discrepancia de total */}
+                        {tieneDiscrepancia && (
+                          <div className="p-2 rounded bg-sky-50 border border-sky-200">
+                            <p className="text-xs font-semibold text-sky-600 uppercase mb-1 flex items-center gap-1">
+                              <AlertCircle className="w-3.5 h-3.5" /> Discrepancia de total
+                            </p>
+                            <p className="text-xs text-sky-700">{fac._totalDiscrepancia}</p>
+                          </div>
+                        )}
+
+                        {/* Advertencias */}
+                        {tieneAdvertencias && (
+                          <div className="p-2 rounded bg-sky-50 border border-sky-100">
+                            <p className="text-xs font-semibold text-sky-600 uppercase mb-1 flex items-center gap-1">
+                              <FileWarning className="w-3.5 h-3.5" /> Advertencias
+                            </p>
+                            <ul className="space-y-0.5">
+                              {fac.advertencias!.map((w, wi) => <li key={wi} className="text-xs text-sky-700">- {w}</li>)}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Productos */}
+                        {fac.productos.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold text-stone-500 uppercase mb-1">Productos</p>
+                            <div className="space-y-0.5">
+                              {fac.productos.map((p, pi) => (
+                                <p key={pi} className={`text-xs ${p._precioCero ? "text-orange-600 font-medium" : "text-stone-600"}`}>
+                                  <span className="text-stone-400">{p.cantidad}x</span>{" "}
+                                  {p.codigo && <span className="text-stone-400">[{p.codigo}] </span>}
+                                  {p.producto}{" "}
+                                  {p._precioCero && <span className="text-orange-500">⚠ Precio $0</span>}
+                                  <span className="text-stone-400"> - {formatMoney(p.subtotal)}</span>
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Errores */}
+                        {fac.errores.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold text-rose-600 uppercase mb-1">Errores</p>
+                            <ul className="space-y-0.5">{fac.errores.map((err, ei) => <li key={ei} className="text-xs text-rose-700">- {err}</li>)}</ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Botón confirmar */}
+        <Card className="border-2 border-purple-200 bg-purple-50/50">
+          <CardContent className="p-5">
+            <div className="flex items-start gap-3 mb-4">
+              <ShieldCheck className="w-6 h-6 text-purple-700 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-semibold text-stone-900">Confirmar importación</h3>
+                <p className="text-sm text-stone-600">
+                  Se van a guardar las <strong>{exitosasSeleccionadas} factura(s)</strong> que seleccionaste, exactamente como están.
+                  {yaExisten > 0 && ` De esas, ${yaExisten} ya existen en la base de datos.`}
+                  {" "}Las que no tengan fecha se rechazan automáticamente.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => { setPaso("subir"); setResult(null); setNumerosExistentes(new Set()); setUploadedFile(null); if (fileRef.current) fileRef.current.value = ""; }} disabled={importing}>
+                Cancelar
+              </Button>
+              <Button onClick={confirmarImport} disabled={importing || exitosasSeleccionadas === 0} className="gap-2 h-11 px-6 bg-purple-800 hover:bg-purple-900 text-white font-semibold shadow-md shadow-purple-200">
+                {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                {importing ? "Guardando..." : `Confirmar ${exitosasSeleccionadas} factura(s)`}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Dialog: Ver datos del Excel */}
+      {viewingSheet && (
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" onClick={() => setViewingSheet(null)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-stone-200 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <FileSpreadsheet className="w-5 h-5 text-sky-600" />
+                <div>
+                  <h3 className="font-semibold text-stone-900">{viewingSheet.hoja}</h3>
+                  <p className="text-xs text-stone-400">Datos originales del Excel</p>
                 </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
+              </div>
+              <button onClick={() => setViewingSheet(null)} className="p-2 hover:bg-stone-100 rounded-lg cursor-pointer">
+                <XCircle className="w-5 h-5 text-stone-400" />
+              </button>
+            </div>
 
-      {/* Botón confirmar */}
-      <Card className="border-2 border-purple-200 bg-purple-50/50">
-        <CardContent className="p-5">
-          <div className="flex items-start gap-3 mb-4">
-            <ShieldCheck className="w-6 h-6 text-purple-700 flex-shrink-0 mt-0.5" />
-            <div>
-              <h3 className="font-semibold text-stone-900">Vos confirmás</h3>
-              <p className="text-sm text-stone-600">
-                Se van a guardar las <strong>{exitosasSeleccionadas} factura(s)</strong> que seleccionaste, exactamente como están.
-                {yaExisten > 0 && ` De esas, ${yaExisten} ya existen en la base de datos — si son compras nuevas, está bien.`}
-                {" "}Las que no tengan fecha se rechazan automáticamente.
-              </p>
+            {/* Tabla */}
+            <div className="flex-1 overflow-auto p-4">
+              <table className="w-full text-xs border-collapse">
+                <tbody>
+                  {viewingSheet.datos.map((row, ri) => (
+                    <tr key={ri} className="border-b border-stone-100 hover:bg-stone-50">
+                      <td className="text-stone-300 text-right pr-2 font-mono select-none w-10">{ri + 1}</td>
+                      {row.map((cell, ci) => (
+                        <td key={ci} className={`px-2 py-1 border-r border-stone-100 whitespace-nowrap max-w-[250px] truncate ${
+                          typeof cell.valor === "number" ? "text-right font-mono text-blue-700" :
+                          typeof cell.valor === "string" && cell.valor.toUpperCase().includes("TOTAL") ? "font-bold text-purple-700" :
+                          "text-stone-700"
+                        }`}>
+                          {cell.valor === null || cell.valor === "" ? "" : String(cell.valor)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3 border-t border-stone-200 flex-shrink-0 flex justify-end">
+              <Button variant="outline" size="sm" onClick={() => setViewingSheet(null)}>Cerrar</Button>
             </div>
           </div>
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={() => { setPaso("subir"); setResult(null); setNumerosExistentes(new Set()); if (fileRef.current) fileRef.current.value = ""; }} disabled={importing}>
-              Cancelar
-            </Button>
-            <Button onClick={confirmarImport} disabled={importing || exitosasSeleccionadas === 0} className="gap-2 h-11 px-6 bg-purple-800 hover:bg-purple-900 text-white font-semibold shadow-md shadow-purple-200">
-              {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              {importing ? "Guardando..." : `Confirmar ${exitosasSeleccionadas} factura(s)`}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      )}
+    </>
   );
 }

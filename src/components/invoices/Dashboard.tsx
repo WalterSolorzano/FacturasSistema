@@ -146,7 +146,7 @@ export function Dashboard() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={<FileText className="w-5 h-5 text-white" />} label="Facturas registradas" value={stats.totalFacturas.toLocaleString("es-AR")} subtitle={`${stats.facturasMes} este mes`} color="bg-purple-800" />
-        <StatCard icon={<DollarSign className="w-5 h-5 text-white" />} label="Total facturado" value={formatMoney(stats.totalFacturado)} subtitle={stats.totalMes > 0 ? `${formatMoney(stats.totalMes)} este mes` : "Acumulado total"} color="bg-amber-500" />
+        <StatCard icon={<DollarSign className="w-5 h-5 text-white" />} label="Total facturado" value={formatMoney(stats.totalFacturado)} subtitle={stats.totalMes > 0 ? `${formatMoney(stats.totalMes)} este mes` : "Acumulado total"} color="bg-sky-600" />
         <StatCard icon={<Hash className="w-5 h-5 text-white" />} label="Unidades vendidas" value={stats.totalUnidades.toLocaleString("es-AR")} subtitle={`${stats.totalProductos} líneas de producto`} color="bg-teal-600" />
         <StatCard icon={<Package className="w-5 h-5 text-white" />} label="Ticket promedio" value={formatMoney(stats.totalFacturas > 0 ? stats.totalFacturado / stats.totalFacturas : 0)} subtitle="Promedio por factura" color="bg-rose-500" />
       </div>
