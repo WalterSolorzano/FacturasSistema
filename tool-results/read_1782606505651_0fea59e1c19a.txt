@@ -1,0 +1,696 @@
+     1→"use client";
+     2→
+     3→import { useState, useRef, useCallback, useEffect } from "react";
+     4→import {
+     5→  Upload,
+     6→  FileSpreadsheet,
+     7→  CheckCircle2,
+     8→  AlertTriangle,
+     9→  XCircle,
+    10→  Loader2,
+    11→  ChevronDown,
+    12→  ChevronUp,
+    13→  ShieldCheck,
+    14→  Eye,
+    15→  FileWarning,
+    16→  Info,
+    17→  ExternalLink,
+    18→  AlertCircle,
+    19→} from "lucide-react";
+    20→import { Button } from "@/components/ui/button";
+    21→import { Card, CardContent } from "@/components/ui/card";
+    22→import { Badge } from "@/components/ui/badge";
+    23→import { useAppStore } from "@/lib/store";
+    24→import { useToast } from "@/hooks/use-toast";
+    25→
+    26→interface ProductoPreview {
+    27→  codigo: string;
+    28→  producto: string;
+    29→  cantidad: number;
+    30→  valorUnit: number;
+    31→  subtotal: number;
+    32→  _precioCero?: boolean;
+    33→}
+    34→
+    35→interface FacturaPreview {
+    36→  numero: string;
+    37→  tipo: string;
+    38→  fecha: string;
+    39→  proveedor: string;
+    40→  productos: ProductoPreview[];
+    41→  total: number;
+    42→  hoja: string;
+    43→  archivoOrigen: string;
+    44→  advertencias: string[];
+    45→  errores: string[];
+    46→  exito: boolean;
+    47→  _numeroDeHoja: boolean;
+    48→  _fechaDudosa: boolean;
+    49→  _totalCalculado?: boolean;
+    50→  _totalDiscrepancia?: string;
+    51→}
+    52→
+    53→interface ImportResult {
+    54→  facturas: FacturaPreview[];
+    55→  totalHojas: number;
+    56→  exitosas: number;
+    57→  conErrores: number;
+    58→  vacias: number;
+    59→}
+    60→
+    61→interface ExistingInvoice {
+    62→  numero: string;
+    63→  fechaEmision: string;
+    64→  total: number;
+    65→  proveedor: string;
+    66→}
+    67→
+    68→// Datos crudos de una hoja Excel para el visor
+    69→interface CeldaRaw {
+    70→  coord: string;
+    71→  valor: string | number | boolean | null;
+    72→}
+    73→
+    74→function formatMoney(v: number): string {
+    75→  return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 2 }).format(v);
+    76→}
+    77→
+    78→function formatDate(iso: string): string {
+    79→  if (!iso) return "SIN FECHA";
+    80→  return new Date(iso).toLocaleDateString("es-AR");
+    81→}
+    82→
+    83→type Paso = "subir" | "revision" | "resultado";
+    84→
+    85→export function Importar() {
+    86→  const { triggerRefresh, setActiveTab, activeProjectId } = useAppStore();
+    87→  const { toast } = useToast();
+    88→  const fileRef = useRef<HTMLInputElement>(null);
+    89→
+    90→  const [dragOver, setDragOver] = useState(false);
+    91→  const [loading, setLoading] = useState(false);
+    92→  const [importing, setImporting] = useState(false);
+    93→  const [paso, setPaso] = useState<Paso>("subir");
+    94→  const [result, setResult] = useState<ImportResult | null>(null);
+    95→  const [selected, setSelected] = useState<Set<number>>(new Set());
+    96→  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+    97→  const [selectedAll, setSelectedAll] = useState(false);
+    98→  const [importResult, setImportResult] = useState<{
+    99→    importadas: number;
+   100→    omitidasFecha: number;
+   101→    errores: string[];
+   102→    resumen: string[];
+   103→  } | null>(null);
+   104→
+   105→  // Números que ya existen en la BD (solo informativo)
+   106→  const [numerosExistentes, setNumerosExistentes] = useState<Set<string>>(new Set());
+   107→
+   108→  // Archivo subido para "Ver en Excel"
+   109→  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+   110→
+   111→  // Dialog para ver datos del Excel
+   112→  const [viewingSheet, setViewingSheet] = useState<{
+   113→    hoja: string;
+   114→    datos: CeldaRaw[][];
+   115→  } | null>(null);
+   116→  const [loadingSheet, setLoadingSheet] = useState(false);
+   117→
+   118→  // Cuando el resultado del análisis llega, verificar cuáles ya existen
+   119→  useEffect(() => {
+   120→    if (!result || !activeProjectId) return;
+   121→
+   122→    const numeros = result.facturas
+   123→      .filter((f) => f.exito && f.numero)
+   124→      .map((f) => f.numero);
+   125→
+   126→    if (numeros.length === 0) return;
+   127→
+   128→    // Consultar API de existentes (solo informativo)
+   129→    fetch(`/api/import/existing?projectId=${activeProjectId}&numeros=${encodeURIComponent(numeros.join(","))}`)
+   130→      .then((r) => r.json())
+   131→      .then((data: { existentes: ExistingInvoice[] }) => {
+   132→        const set = new Set<string>(data.existentes.map((e) => e.numero));
+   133→        setNumerosExistentes(set);
+   134→      })
+   135→      .catch(() => {});
+   136→  }, [result, activeProjectId]);
+   137→
+   138→  const procesarArchivo = useCallback(async (file: File) => {
+   139→    setLoading(true);
+   140→    setResult(null);
+   141→    setNumerosExistentes(new Set());
+   142→    setPaso("subir");
+   143→    setUploadedFile(file);
+   144→
+   145→    try {
+   146→      const fd = new FormData();
+   147→      fd.append("archivo", file);
+   148→
+   149→      const res = await fetch("/api/import", { method: "POST", body: fd });
+   150→      const data = await res.json() as ImportResult;
+   151→      if (!res.ok) throw new Error((data as any).error);
+   152→
+   153→      setResult(data);
+   154→
+   155→      // NO auto-seleccionar. El usuario revisa y decide.
+   156→      setSelected(new Set());
+   157→      setSelectedAll(false);
+   158→      setPaso("revision");
+   159→    } catch (err) {
+   160→      toast({
+   161→        title: "Error al procesar",
+   162→        description: err instanceof Error ? err.message : "No se pudo leer el archivo.",
+   163→        variant: "destructive",
+   164→      });
+   165→    } finally {
+   166→      setLoading(false);
+   167→    }
+   168→  }, [toast]);
+   169→
+   170→  // Ver datos del Excel para una hoja específica
+   171→  const verEnExcel = useCallback(async (sheetName: string) => {
+   172→    if (!uploadedFile) {
+   173→      toast({ title: "Archivo no disponible", description: "El archivo original ya no está en memoria.", variant: "destructive" });
+   174→      return;
+   175→    }
+   176→
+   177→    setLoadingSheet(true);
+   178→    try {
+   179→      const buffer = await uploadedFile.arrayBuffer();
+   180→      const XLSX = await import("xlsx");
+   181→      const wb = XLSX.read(buffer, { type: "array" });
+   182→      const ws = wb.Sheets[sheetName];
+   183→      if (!ws || !ws["!ref"]) {
+   184→        toast({ title: "Hoja vacía", description: `La hoja "${sheetName}" no tiene datos.` });
+   185→        setLoadingSheet(false);
+   186→        return;
+   187→      }
+   188→
+   189→      const range = XLSX.utils.decode_range(ws["!ref"]);
+   190→      const datos: CeldaRaw[][] = [];
+   191→
+   192→      for (let r = range.s.r; r <= range.e.r; r++) {
+   193→        const row: CeldaRaw[] = [];
+   194→        let hasData = false;
+   195→        for (let c = range.s.c; c <= range.e.c; c++) {
+   196→          const addr = XLSX.utils.encode_cell({ r, c });
+   197→          const cell = ws[addr];
+   198→          const valor = cell?.v !== undefined ? cell.v : null;
+   199→          const coord = XLSX.utils.encode_cell({ r, c });
+   200→          row.push({ coord, valor });
+   201→          if (valor !== null && valor !== "") hasData = true;
+   202→        }
+   203→        if (hasData) datos.push(row);
+   204→      }
+   205→
+   206→      setViewingSheet({ hoja: sheetName, datos });
+   207→    } catch {
+   208→      toast({ title: "Error", description: "No se pudo leer la hoja del Excel.", variant: "destructive" });
+   209→    } finally {
+   210→      setLoadingSheet(false);
+   211→    }
+   212→  }, [uploadedFile, toast]);
+   213→
+   214→  const handleDrop = useCallback((e: React.DragEvent) => {
+   215→    e.preventDefault(); setDragOver(false);
+   216→    const file = e.dataTransfer.files[0];
+   217→    if (file) procesarArchivo(file);
+   218→  }, [procesarArchivo]);
+   219→
+   220→  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+   221→    const file = e.target.files?.[0];
+   222→    if (file) procesarArchivo(file);
+   223→  }, [procesarArchivo]);
+   224→
+   225→  const confirmarImport = async () => {
+   226→    if (!result) return;
+   227→    const facturasAImportar = result.facturas.filter((_, i) => selected.has(i));
+   228→    if (facturasAImportar.length === 0) {
+   229→      toast({ title: "Nada que importar", description: "Seleccioná al menos una factura.", variant: "destructive" });
+   230→      return;
+   231→    }
+   232→
+   233→    setImporting(true);
+   234→    try {
+   235→      const res = await fetch("/api/import/confirm", {
+   236→        method: "POST",
+   237→        headers: { "Content-Type": "application/json" },
+   238→        body: JSON.stringify({ facturas: facturasAImportar, projectId: activeProjectId }),
+   239→      });
+   240→      const data = await res.json();
+   241→      if (!res.ok) throw new Error(data.error);
+   242→
+   243→      setImportResult({
+   244→        importadas: data.importadas,
+   245→        omitidasFecha: data.omitidasFecha || 0,
+   246→        errores: data.errores || [],
+   247→        resumen: data.resumen || [],
+   248→      });
+   249→      setPaso("resultado");
+   250→      triggerRefresh();
+   251→    } catch (err) {
+   252→      toast({ title: "Error al guardar", description: err instanceof Error ? err.message : "Intentá de nuevo.", variant: "destructive" });
+   253→    } finally {
+   254→      setImporting(false);
+   255→    }
+   256→  };
+   257→
+   258→  const toggleSelect = (idx: number) => {
+   259→    setSelected((prev) => {
+   260→      const next = new Set(prev);
+   261→      if (next.has(idx)) next.delete(idx); else next.add(idx);
+   262→      setSelectedAll(false);
+   263→      return next;
+   264→    });
+   265→  };
+   266→
+   267→  const toggleAll = () => {
+   268→    if (!result) return;
+   269→    if (selectedAll) {
+   270→      setSelected(new Set()); setSelectedAll(false);
+   271→    } else {
+   272→      // Seleccionar TODAS las exitosas
+   273→      const all = new Set<number>();
+   274→      result.facturas.forEach((f, i) => { if (f.exito) all.add(i); });
+   275→      setSelected(all); setSelectedAll(true);
+   276→    }
+   277→  };
+   278→
+   279→  const toggleExpand = (idx: number) => {
+   280→    setExpanded((prev) => { const next = new Set(prev); if (next.has(idx)) next.delete(idx); else next.add(idx); return next; });
+   281→  };
+   282→
+   283→  const exitosasSeleccionadas = result ? result.facturas.filter((_, i) => selected.has(i) && result.facturas[i].exito).length : 0;
+   284→  const conAdvertencias = result ? result.facturas.filter((f) => f.advertencias && f.advertencias.length > 0).length : 0;
+   285→  const sinFecha = result ? result.facturas.filter((f) => f._fechaDudosa || !f.fecha).length : 0;
+   286→  const yaExisten = result
+   287→    ? result.facturas.filter((f) => f.numero && numerosExistentes.has(f.numero)).length
+   288→    : 0;
+   289→  const conPrecioCero = result
+   290→    ? result.facturas.filter((f) => f.productos.some((p) => p._precioCero)).length
+   291→    : 0;
+   292→  const conDiscrepancia = result
+   293→    ? result.facturas.filter((f) => f._totalDiscrepancia).length
+   294→    : 0;
+   295→
+   296→  // PASO: SUBIR ARCHIVO
+   297→  if (paso === "subir") {
+   298→    return (
+   299→      <div className="space-y-6 animate-in fade-in max-w-4xl">
+   300→        <div>
+   301→          <h2 className="text-xl font-bold text-stone-900">Importar facturas</h2>
+   302→          <p className="text-sm text-stone-500 mt-0.5">Subí el archivo Excel con las hojas de factura</p>
+   303→        </div>
+   304→
+   305→        <Card className={`border-2 border-dashed transition-all cursor-pointer ${dragOver ? "border-purple-500 bg-purple-50" : "border-stone-300 hover:border-purple-400 hover:bg-stone-50"}`}
+   306→          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+   307→          onDragLeave={() => setDragOver(false)}
+   308→          onDrop={handleDrop}
+   309→          onClick={() => fileRef.current?.click()}
+   310→        >
+   311→          <CardContent className="p-10 text-center">
+   312→            {loading ? (
+   313→              <div className="space-y-3">
+   314→                <Loader2 className="w-10 h-10 mx-auto text-purple-700 animate-spin" />
+   315→                <p className="text-stone-600 font-medium">Leyendo hojas del archivo...</p>
+   316→                <p className="text-xs text-stone-400">Esto puede tardar unos segundos con muchas hojas</p>
+   317→              </div>
+   318→            ) : (
+   319→              <div className="space-y-3">
+   320→                <div className="w-14 h-14 mx-auto rounded-2xl bg-purple-100 flex items-center justify-center"><Upload className="w-7 h-7 text-purple-700" /></div>
+   321→                <p className="text-stone-900 font-semibold">Arrastrá el archivo Excel aquí</p>
+   322→                <p className="text-sm text-stone-500">o hacé clic para seleccionarlo</p>
+   323→                <p className="text-xs text-stone-400">Acepta archivos .xlsx con una o más hojas de factura</p>
+   324→              </div>
+   325→            )}
+   326→          </CardContent>
+   327→          <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleFileInput} className="hidden" />
+   328→        </Card>
+   329→
+   330→        <div className="flex items-start gap-3 p-4 rounded-xl bg-sky-50 border border-sky-200">
+   331→          <FileSpreadsheet className="w-5 h-5 text-sky-600 flex-shrink-0 mt-0.5" />
+   332→          <p className="text-sm text-sky-800"><strong>Formato esperado:</strong> Cada hoja del Excel debe ser una factura con las columnas CANTIDAD, CODIGO, DESCRIPCION, P.UNI y TOTAL. El sistema detecta automáticamente el formato.</p>
+   333→        </div>
+   334→
+   335→        <div className="flex items-start gap-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
+   336→          <ShieldCheck className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+   337→          <p className="text-sm text-emerald-800"><strong>Vos revisás y decidís:</strong> El sistema lee los datos tal cual están. No se elimina ni se modifica nada automáticamente. Podés verificar cada factura contra el Excel original antes de confirmar. Un cliente puede comprar varias veces — eso no es duplicado.</p>
+   338→        </div>
+   339→      </div>
+   340→    );
+   341→  }
+   342→
+   343→  // PASO: RESULTADO FINAL
+   344→  if (paso === "resultado" && importResult) {
+   345→    return (
+   346→      <div className="space-y-6 animate-in fade-in max-w-4xl">
+   347→        <div>
+   348→          <h2 className="text-xl font-bold text-stone-900">Importación completada</h2>
+   349→          <p className="text-sm text-stone-500 mt-0.5">Resultado de la importación</p>
+   350→        </div>
+   351→
+   352→        <Card className="border-0 shadow-sm">
+   353→          <CardContent className="p-8 text-center">
+   354→            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-emerald-100 flex items-center justify-center">
+   355→              <CheckCircle2 className="w-8 h-8 text-emerald-700" />
+   356→            </div>
+   357→            <h3 className="text-lg font-bold text-stone-900 mb-1">Importación completada</h3>
+   358→            <p className="text-3xl font-bold text-purple-700 my-3">{importResult.importadas} factura(s) importada(s)</p>
+   359→            <div className="flex justify-center gap-6 text-sm text-stone-500">
+   360→              {importResult.omitidasFecha > 0 && <span className="text-rose-600">{importResult.omitidasFecha} rechazada(s) por falta de fecha</span>}
+   361→            </div>
+   362→          </CardContent>
+   363→        </Card>
+   364→
+   365→        {importResult.resumen && importResult.resumen.length > 0 && (
+   366→          <Card className="border border-sky-200">
+   367→            <CardContent className="p-5">
+   368→              <h4 className="font-semibold text-sky-700 mb-2">Resumen</h4>
+   369→              <ul className="space-y-1">
+   370→                {importResult.resumen.map((r, i) => <li key={i} className="text-xs text-sky-600">- {r}</li>)}
+   371→              </ul>
+   372→            </CardContent>
+   373→          </Card>
+   374→        )}
+   375→
+   376→        {importResult.errores.length > 0 && (
+   377→          <Card className="border border-rose-200">
+   378→            <CardContent className="p-5">
+   379→              <h4 className="font-semibold text-rose-700 mb-2">Errores detallados</h4>
+   380→              <ul className="space-y-1 max-h-40 overflow-y-auto">
+   381→                {importResult.errores.map((err, i) => <li key={i} className="text-xs text-rose-600 font-mono">- {err}</li>)}
+   382→              </ul>
+   383→            </CardContent>
+   384→          </Card>
+   385→        )}
+   386→
+   387→        <div className="flex gap-3">
+   388→          <Button variant="outline" onClick={() => { setPaso("subir"); setResult(null); setImportResult(null); setNumerosExistentes(new Set()); setUploadedFile(null); if (fileRef.current) fileRef.current.value = ""; }}>
+   389→            Importar otro archivo
+   390→          </Button>
+   391→          <Button onClick={() => setActiveTab("consultar")} className="bg-purple-800 hover:bg-purple-900 text-white font-semibold shadow-md shadow-purple-200">
+   392→            Ver facturas importadas
+   393→          </Button>
+   394→        </div>
+   395→      </div>
+   396→    );
+   397→  }
+   398→
+   399→  // PASO: REVISIÓN
+   400→  if (!result) return null;
+   401→
+   402→  return (
+   403→    <>
+   404→      <div className="space-y-5 animate-in fade-in max-w-4xl">
+   405→        <div className="flex items-center justify-between">
+   406→          <div>
+   407→            <h2 className="text-xl font-bold text-stone-900">Revisión de datos</h2>
+   408→            <p className="text-sm text-stone-500 mt-0.5">Revisá cada factura. Seleccioná las que querés importar.</p>
+   409→          </div>
+   410→          <Button variant="ghost" size="sm" onClick={() => { setPaso("subir"); setResult(null); setNumerosExistentes(new Set()); setUploadedFile(null); if (fileRef.current) fileRef.current.value = ""; }}>
+   411→            Volver
+   412→          </Button>
+   413→        </div>
+   414→
+   415→        {/* Barra de progreso */}
+   416→        <div className="flex items-center gap-2 text-xs">
+   417→          <div className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-purple-700" /><span className="font-medium text-purple-800">Paso 1: Cargar archivo</span></div>
+   418→          <div className="w-8 h-px bg-purple-300" />
+   419→          <div className="flex items-center gap-1.5"><Eye className="w-4 h-4 text-purple-700" /><span className="font-medium text-purple-800">Paso 2: Revisión</span></div>
+   420→          <div className="w-8 h-px bg-stone-300" />
+   421→          <div className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-stone-400" /><span className="text-stone-400">Paso 3: Confirmar</span></div>
+   422→        </div>
+   423→
+   424→        {/* Resumen */}
+   425→        <Card className="border-0 shadow-sm">
+   426→          <CardContent className="p-5">
+   427→            <h3 className="font-semibold text-stone-900 mb-3">Resultado del análisis</h3>
+   428→            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+   429→              <div className="p-3 rounded-lg bg-purple-50 text-center">
+   430→                <p className="text-2xl font-bold text-purple-800">{result.exitosas}</p>
+   431→                <p className="text-xs text-purple-700">Extraídas</p>
+   432→              </div>
+   433→              <div className={`p-3 rounded-lg text-center ${result.conErrores > 0 ? "bg-rose-50" : "bg-stone-50"}`}>
+   434→                <p className={`text-2xl font-bold ${result.conErrores > 0 ? "text-rose-600" : "text-stone-400"}`}>{result.conErrores}</p>
+   435→                <p className="text-xs text-rose-500">Con errores</p>
+   436→              </div>
+   437→              <div className={`p-3 rounded-lg text-center ${conAdvertencias + conPrecioCero + conDiscrepancia > 0 ? "bg-sky-50" : "bg-stone-50"}`}>
+   438→                <p className={`text-2xl font-bold ${conAdvertencias + conPrecioCero + conDiscrepancia > 0 ? "text-sky-600" : "text-stone-400"}`}>{conAdvertencias + conPrecioCero + conDiscrepancia}</p>
+   439→                <p className="text-xs text-sky-600">Con avisos</p>
+   440→              </div>
+   441→              <div className={`p-3 rounded-lg text-center ${yaExisten > 0 ? "bg-slate-50" : "bg-stone-50"}`}>
+   442→                <p className={`text-2xl font-bold ${yaExisten > 0 ? "text-slate-600" : "text-stone-400"}`}>{yaExisten}</p>
+   443→                <p className="text-xs text-slate-500">Ya en BD</p>
+   444→              </div>
+   445→            </div>
+   446→
+   447→            {/* Nota informativa */}
+   448→            <div className="flex items-start gap-2 mt-3 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
+   449→              <ShieldCheck className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
+   450→              <p className="text-xs text-emerald-700">
+   451→                <strong>Vos decidís qué importar.</strong> Marcá las facturas que querés guardar.
+   452→                Si un número ya existe, se te informa pero podés importarlo igual — un cliente puede comprar varias veces.
+   453→                Usá el botón <strong>"Ver en Excel"</strong> para comprobar cualquier dato contra el original.
+   454→              </p>
+   455→            </div>
+   456→
+   457→            {yaExisten > 0 && (
+   458→              <div className="flex items-start gap-2 mt-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+   459→                <Info className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
+   460→                <p className="text-xs text-slate-600">
+   461→                  <strong>{yaExisten} factura(s)</strong> ya están en la base de datos. Si son compras reales nuevas, es normal que aparezcan.
+   462→                </p>
+   463→              </div>
+   464→            )}
+   465→          </CardContent>
+   466→        </Card>
+   467→
+   468→        {/* Lista de facturas */}
+   469→        <Card className="border-0 shadow-sm">
+   470→          <CardContent className="p-5">
+   471→            <div className="flex items-center justify-between mb-3">
+   472→              <label className="flex items-center gap-2 cursor-pointer">
+   473→                <input type="checkbox" checked={selectedAll} onChange={toggleAll} className="w-4 h-4 rounded border-stone-300 text-purple-700 focus:ring-purple-500" />
+   474→                <span className="text-sm font-medium text-stone-700">Seleccionar todas las válidas</span>
+   475→              </label>
+   476→              <span className="text-xs text-stone-400">{exitosasSeleccionadas} seleccionada(s)</span>
+   477→            </div>
+   478→
+   479→            <div className="space-y-2 max-h-[500px] overflow-y-auto">
+   480→              {result.facturas.map((fac, idx) => {
+   481→                const tieneAdvertencias = fac.advertencias && fac.advertencias.length > 0;
+   482→                const tieneFecha = fac.fecha && !fac._fechaDudosa;
+   483→                const existeEnBD = fac.numero && numerosExistentes.has(fac.numero);
+   484→                const tienePrecioCero = fac.productos.some((p) => p._precioCero);
+   485→                const tieneDiscrepancia = !!fac._totalDiscrepancia;
+   486→                const tieneTotalCalculado = !!fac._totalCalculado;
+   487→
+   488→                return (
+   489→                  <div key={idx} className={`rounded-lg border p-3 transition-colors ${
+   490→                    !fac.exito ? "border-rose-200 bg-rose-50/50 opacity-70" :
+   491→                    fac._fechaDudosa ? "border-rose-200 bg-rose-50/30" :
+   492→                    existeEnBD ? "border-slate-200 bg-slate-50/30" :
+   493→                    selected.has(idx) ? "border-purple-300 bg-purple-50/50" :
+   494→                    "border-stone-200 bg-white hover:bg-stone-50"
+   495→                  }`}>
+   496→                    <div className="flex items-center gap-3">
+   497→                      {fac.exito ? (
+   498→                        <input type="checkbox" checked={selected.has(idx)} onChange={() => toggleSelect(idx)} className="w-4 h-4 rounded border-stone-300 text-purple-700 focus:ring-purple-500" />
+   499→                      ) : (
+   500→                        <XCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
+   501→                      )}
+   502→
+   503→                      <div className="flex-1 min-w-0">
+   504→                        <div className="flex items-center gap-2 flex-wrap">
+   505→                          <span className="font-medium text-sm text-stone-900">{fac.numero || "(sin número)"}</span>
+   506→                          {fac.tipo && <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-stone-100">{fac.tipo}</Badge>}
+   507→                          {/* Indicadores — informativos, no bloqueantes */}
+   508→                          {existeEnBD && <Badge className="text-xs px-1.5 py-0 bg-slate-100 text-slate-700 border-slate-200">Ya existe</Badge>}
+   509→                          {fac._numeroDeHoja && <Badge className="text-xs px-1.5 py-0 bg-violet-100 text-violet-700 border-violet-200">N° dudoso</Badge>}
+   510→                          {!tieneFecha && fac.exito && <Badge className="text-xs px-1.5 py-0 bg-rose-100 text-rose-700 border-rose-200">Sin fecha</Badge>}
+   511→                          {tienePrecioCero && <Badge className="text-xs px-1.5 py-0 bg-orange-100 text-orange-700 border-orange-200">$0</Badge>}
+   512→                          {tieneDiscrepancia && <Badge className="text-xs px-1.5 py-0 bg-sky-100 text-sky-700 border-sky-200">Discrepancia</Badge>}
+   513→                          {tieneTotalCalculado && !tieneDiscrepancia && <Badge className="text-xs px-1.5 py-0 bg-sky-100 text-sky-700 border-sky-200">Total calculado</Badge>}
+   514→                          {tieneAdvertencias && <Badge className="text-xs px-1.5 py-0 bg-sky-100 text-sky-700 border-sky-200">{fac.advertencias!.length} aviso(s)</Badge>}
+   515→                          <span className="text-xs text-stone-400">{fac.hoja}</span>
+   516→                        </div>
+   517→                        <p className="text-xs text-stone-600 mt-0.5">
+   518→                          {formatDate(fac.fecha)} | {fac.proveedor || "(sin cliente)"} | {fac.productos.length} prod. | {fac.productos.reduce((s, p) => s + p.cantidad, 0)} uds. | <span className="font-semibold">{formatMoney(fac.total)}</span>
+   519→                        </p>
+   520→                      </div>
+   521→
+   522→                      <div className="flex items-center gap-1">
+   523→                        {/* Botón Ver en Excel */}
+   524→                        <button
+   525→                          onClick={() => verEnExcel(fac.hoja)}
+   526→                          disabled={loadingSheet}
+   527→                          className="p-1.5 hover:bg-sky-50 rounded-lg transition-colors cursor-pointer group"
+   528→                          title="Ver datos originales en el Excel"
+   529→                        >
+   530→                          <ExternalLink className={`w-4 h-4 text-sky-500 group-hover:text-sky-700 ${loadingSheet ? "animate-pulse" : ""}`} />
+   531→                        </button>
+   532→
+   533→                        {fac.exito ? <CheckCircle2 className="w-5 h-5 text-purple-700" /> : <AlertTriangle className="w-5 h-5 text-rose-500" />}
+   534→                        <button onClick={() => toggleExpand(idx)} className="p-1 hover:bg-stone-200 rounded cursor-pointer">
+   535→                          {expanded.has(idx) ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
+   536→                        </button>
+   537→                      </div>
+   538→                    </div>
+   539→
+   540→                    {expanded.has(idx) && (
+   541→                      <div className="mt-3 pt-3 border-t border-stone-200 space-y-2">
+   542→                        {/* Origen del dato */}
+   543→                        <div className="flex items-center gap-2 text-xs text-stone-500">
+   544→                          <FileSpreadsheet className="w-3.5 h-3.5" />
+   545→                          <span>Archivo: <strong>{fac.archivoOrigen || "desconocido"}</strong> | Hoja: <strong>{fac.hoja}</strong></span>
+   546→                          <button
+   547→                            onClick={() => verEnExcel(fac.hoja)}
+   548→                            className="ml-2 text-sky-600 hover:text-sky-800 underline cursor-pointer text-xs"
+   549→                          >
+   550→                            Ver en Excel
+   551→                          </button>
+   552→                        </div>
+   553→
+   554→                        {/* Aviso de "ya existe" */}
+   555→                        {existeEnBD && (
+   556→                          <div className="p-2 rounded bg-slate-50 border border-slate-100">
+   557→                            <p className="text-xs text-slate-600 flex items-center gap-1">
+   558→                              <Info className="w-3.5 h-3.5" />
+   559→                              Este número ya está en la base de datos. Si es una compra nueva del mismo cliente, es normal. Vos decidís.
+   560→                            </p>
+   561→                          </div>
+   562→                        )}
+   563→
+   564→                        {/* Discrepancia de total */}
+   565→                        {tieneDiscrepancia && (
+   566→                          <div className="p-2 rounded bg-sky-50 border border-sky-200">
+   567→                            <p className="text-xs font-semibold text-sky-600 uppercase mb-1 flex items-center gap-1">
+   568→                              <AlertCircle className="w-3.5 h-3.5" /> Discrepancia de total
+   569→                            </p>
+   570→                            <p className="text-xs text-sky-700">{fac._totalDiscrepancia}</p>
+   571→                          </div>
+   572→                        )}
+   573→
+   574→                        {/* Advertencias */}
+   575→                        {tieneAdvertencias && (
+   576→                          <div className="p-2 rounded bg-sky-50 border border-sky-100">
+   577→                            <p className="text-xs font-semibold text-sky-600 uppercase mb-1 flex items-center gap-1">
+   578→                              <FileWarning className="w-3.5 h-3.5" /> Advertencias
+   579→                            </p>
+   580→                            <ul className="space-y-0.5">
+   581→                              {fac.advertencias!.map((w, wi) => <li key={wi} className="text-xs text-sky-700">- {w}</li>)}
+   582→                            </ul>
+   583→                          </div>
+   584→                        )}
+   585→
+   586→                        {/* Productos */}
+   587→                        {fac.productos.length > 0 && (
+   588→                          <div>
+   589→                            <p className="text-xs font-semibold text-stone-500 uppercase mb-1">Productos</p>
+   590→                            <div className="space-y-0.5">
+   591→                              {fac.productos.map((p, pi) => (
+   592→                                <p key={pi} className={`text-xs ${p._precioCero ? "text-orange-600 font-medium" : "text-stone-600"}`}>
+   593→                                  <span className="text-stone-400">{p.cantidad}x</span>{" "}
+   594→                                  {p.codigo && <span className="text-stone-400">[{p.codigo}] </span>}
+   595→                                  {p.producto}{" "}
+   596→                                  {p._precioCero && <span className="text-orange-500">⚠ Precio $0</span>}
+   597→                                  <span className="text-stone-400"> - {formatMoney(p.subtotal)}</span>
+   598→                                </p>
+   599→                              ))}
+   600→                            </div>
+   601→                          </div>
+   602→                        )}
+   603→
+   604→                        {/* Errores */}
+   605→                        {fac.errores.length > 0 && (
+   606→                          <div>
+   607→                            <p className="text-xs font-semibold text-rose-600 uppercase mb-1">Errores</p>
+   608→                            <ul className="space-y-0.5">{fac.errores.map((err, ei) => <li key={ei} className="text-xs text-rose-700">- {err}</li>)}</ul>
+   609→                          </div>
+   610→                        )}
+   611→                      </div>
+   612→                    )}
+   613→                  </div>
+   614→                );
+   615→              })}
+   616→            </div>
+   617→          </CardContent>
+   618→        </Card>
+   619→
+   620→        {/* Botón confirmar */}
+   621→        <Card className="border-2 border-purple-200 bg-purple-50/50">
+   622→          <CardContent className="p-5">
+   623→            <div className="flex items-start gap-3 mb-4">
+   624→              <ShieldCheck className="w-6 h-6 text-purple-700 flex-shrink-0 mt-0.5" />
+   625→              <div>
+   626→                <h3 className="font-semibold text-stone-900">Confirmar importación</h3>
+   627→                <p className="text-sm text-stone-600">
+   628→                  Se van a guardar las <strong>{exitosasSeleccionadas} factura(s)</strong> que seleccionaste, exactamente como están.
+   629→                  {yaExisten > 0 && ` De esas, ${yaExisten} ya existen en la base de datos.`}
+   630→                  {" "}Las que no tengan fecha se rechazan automáticamente.
+   631→                </p>
+   632→              </div>
+   633→            </div>
+   634→            <div className="flex gap-3">
+   635→              <Button variant="outline" onClick={() => { setPaso("subir"); setResult(null); setNumerosExistentes(new Set()); setUploadedFile(null); if (fileRef.current) fileRef.current.value = ""; }} disabled={importing}>
+   636→                Cancelar
+   637→              </Button>
+   638→              <Button onClick={confirmarImport} disabled={importing || exitosasSeleccionadas === 0} className="gap-2 h-11 px-6 bg-purple-800 hover:bg-purple-900 text-white font-semibold shadow-md shadow-purple-200">
+   639→                {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+   640→                {importing ? "Guardando..." : `Confirmar ${exitosasSeleccionadas} factura(s)`}
+   641→              </Button>
+   642→            </div>
+   643→          </CardContent>
+   644→        </Card>
+   645→      </div>
+   646→
+   647→      {/* Dialog: Ver datos del Excel */}
+   648→      {viewingSheet && (
+   649→        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" onClick={() => setViewingSheet(null)}>
+   650→          <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+   651→            {/* Header */}
+   652→            <div className="flex items-center justify-between px-5 py-4 border-b border-stone-200 flex-shrink-0">
+   653→              <div className="flex items-center gap-3">
+   654→                <FileSpreadsheet className="w-5 h-5 text-sky-600" />
+   655→                <div>
+   656→                  <h3 className="font-semibold text-stone-900">{viewingSheet.hoja}</h3>
+   657→                  <p className="text-xs text-stone-400">Datos originales del Excel</p>
+   658→                </div>
+   659→              </div>
+   660→              <button onClick={() => setViewingSheet(null)} className="p-2 hover:bg-stone-100 rounded-lg cursor-pointer">
+   661→                <XCircle className="w-5 h-5 text-stone-400" />
+   662→              </button>
+   663→            </div>
+   664→
+   665→            {/* Tabla */}
+   666→            <div className="flex-1 overflow-auto p-4">
+   667→              <table className="w-full text-xs border-collapse">
+   668→                <tbody>
+   669→                  {viewingSheet.datos.map((row, ri) => (
+   670→                    <tr key={ri} className="border-b border-stone-100 hover:bg-stone-50">
+   671→                      <td className="text-stone-300 text-right pr-2 font-mono select-none w-10">{ri + 1}</td>
+   672→                      {row.map((cell, ci) => (
+   673→                        <td key={ci} className={`px-2 py-1 border-r border-stone-100 whitespace-nowrap max-w-[250px] truncate ${
+   674→                          typeof cell.valor === "number" ? "text-right font-mono text-blue-700" :
+   675→                          typeof cell.valor === "string" && cell.valor.toUpperCase().includes("TOTAL") ? "font-bold text-purple-700" :
+   676→                          "text-stone-700"
+   677→                        }`}>
+   678→                          {cell.valor === null || cell.valor === "" ? "" : String(cell.valor)}
+   679→                        </td>
+   680→                      ))}
+   681→                    </tr>
+   682→                  ))}
+   683→                </tbody>
+   684→              </table>
+   685→            </div>
+   686→
+   687→            {/* Footer */}
+   688→            <div className="px-5 py-3 border-t border-stone-200 flex-shrink-0 flex justify-end">
+   689→              <Button variant="outline" size="sm" onClick={() => setViewingSheet(null)}>Cerrar</Button>
+   690→            </div>
+   691→          </div>
+   692→        </div>
+   693→      )}
+   694→    </>
+   695→  );
+   696→}
