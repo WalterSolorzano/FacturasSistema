@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Plus, Trash2, Save, RotateCcw } from "lucide-react";
+import { Plus, Trash2, Save, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAppStore } from "@/lib/store";
@@ -29,16 +29,53 @@ function CellInput({ value, onChange, onKeyDown, placeholder, type = "text", ali
 }
 
 export function InvoiceForm() {
-  const { activeProjectId, triggerRefresh } = useAppStore();
+  const { activeProjectId, triggerRefresh, invoiceToEdit, setInvoiceToEdit } = useAppStore();
   const { toast } = useToast();
   const [sending, setSending] = useState(false);
   const [numero, setNumero] = useState("");
   const [tipo, setTipo] = useState("FC");
   const [fecha, setFecha] = useState(() => new Date().toISOString().split("T")[0]);
   const [proveedor, setProveedor] = useState("");
+  const [clienteCodigo, setClienteCodigo] = useState("");
+  const [clienteDireccion, setClienteDireccion] = useState("");
+  const [clienteCiudadTel, setClienteCiudadTel] = useState("");
+  const [condicionVenta, setCondicionVenta] = useState("CONTADO");
+  const [clienteCuit, setClienteCuit] = useState("C.U.I.T.: ");
+  const [clienteContacto, setClienteContacto] = useState("CONTACTO : ");
+  const [remito, setRemito] = useState("REMITO N° 00000000");
+
   const [items, setItems] = useState<ItemRow[]>([createEmptyItem()]);
   const headerRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const itemRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  useEffect(() => {
+    if (invoiceToEdit) {
+      setNumero(invoiceToEdit.numero || "");
+      setTipo(invoiceToEdit.tipo || "FC");
+      setFecha(invoiceToEdit.fechaEmision ? new Date(invoiceToEdit.fechaEmision).toISOString().split("T")[0] : new Date().toISOString().split("T")[0]);
+      setProveedor(invoiceToEdit.proveedor || "");
+      setClienteCodigo(invoiceToEdit.clienteCodigo || "");
+      setClienteDireccion(invoiceToEdit.clienteDireccion || "");
+      setClienteCiudadTel(invoiceToEdit.clienteCiudadTel || "");
+      setCondicionVenta(invoiceToEdit.condicionVenta || "CONTADO");
+      setClienteCuit(invoiceToEdit.clienteCuit || "C.U.I.T.: ");
+      setClienteContacto(invoiceToEdit.clienteContacto || "CONTACTO : ");
+      setRemito(invoiceToEdit.remito || "REMITO N° 00000000");
+      if (invoiceToEdit.items && invoiceToEdit.items.length > 0) {
+        setItems(invoiceToEdit.items.map((i: any) => ({
+          id: nextId++,
+          codigo: i.codigo || "",
+          producto: i.producto || "",
+          cantidad: String(i.cantidad || ""),
+          valorUnit: String(i.valorUnit || "")
+        })));
+      } else {
+        setItems([createEmptyItem()]);
+      }
+    } else {
+      limpiar();
+    }
+  }, [invoiceToEdit]);
 
   const agregarFila = useCallback(() => setItems((p) => [...p, createEmptyItem()]), []);
   const quitarFila = useCallback((id: number) => setItems((p) => (p.length <= 1 ? p : p.filter((i) => i.id !== id))), []);
@@ -59,7 +96,7 @@ export function InvoiceForm() {
       else if (ri < items.length - 1) focusField(itemRefs, `${ri + 1}-codigo`);
       else setItems((p) => { setTimeout(() => focusField(itemRefs, `${p.length}-codigo`), 30); return [...p, createEmptyItem()]; });
     } else if (e.key === "Tab" && e.shiftKey && col === "codigo" && ri === 0) {
-      e.preventDefault(); focusField(headerRefs, "proveedor");
+      e.preventDefault(); focusField(headerRefs, "remito");
     }
   }, [items.length, focusField]);
 
@@ -69,7 +106,9 @@ export function InvoiceForm() {
 
   const limpiar = useCallback(() => {
     setNumero(""); setTipo("FC"); setFecha(new Date().toISOString().split("T")[0]);
-    setProveedor(""); setItems([createEmptyItem()]);
+    setProveedor(""); setClienteCodigo(""); setClienteDireccion(""); setClienteCiudadTel("");
+    setCondicionVenta("CONTADO"); setClienteCuit("C.U.I.T.: "); setClienteContacto("CONTACTO : "); setRemito("REMITO N° 00000000");
+    setItems([createEmptyItem()]);
     setTimeout(() => focusField(headerRefs, "numero"), 30);
   }, [focusField]);
 
@@ -83,25 +122,47 @@ export function InvoiceForm() {
     if (!valid.length) { toast({ title: "Sin productos", description: "Agregá al menos un producto.", variant: "destructive" }); return; }
     setSending(true);
     try {
-      const res = await fetch("/api/invoices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      const url = invoiceToEdit ? `/api/invoices/${invoiceToEdit.id}` : "/api/invoices";
+      const method = invoiceToEdit ? "PUT" : "POST";
+      const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({
         projectId: activeProjectId, numero: numero.trim(), tipo: tipo.trim(), fechaEmision: fecha, proveedor: proveedor.trim(),
+        clienteCodigo: clienteCodigo.trim(), clienteDireccion: clienteDireccion.trim(), clienteCiudadTel: clienteCiudadTel.trim(),
+        condicionVenta: condicionVenta.trim(), clienteCuit: clienteCuit.trim(), clienteContacto: clienteContacto.trim(), remito: remito.trim(),
         items: valid.map((i) => ({ codigo: i.codigo.trim(), producto: i.producto.trim(), cantidad: parseFloat(i.cantidad) || 0, valorUnit: parseFloat(i.valorUnit) || 0, subtotal: (parseFloat(i.cantidad) || 0) * (parseFloat(i.valorUnit) || 0) })),
       })});
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      toast({ title: "Factura guardada", description: `${numero.trim()} — ${valid.length} ítem(es) — ${formatMoney(data.total)}` });
-      triggerRefresh(); limpiar();
+      toast({ title: invoiceToEdit ? "Factura actualizada" : "Factura guardada", description: `${numero.trim()} — ${valid.length} ítem(es) — ${formatMoney(data.total)}` });
+      triggerRefresh(); 
+      if (invoiceToEdit) setInvoiceToEdit(null); // Return to default create state
+      else limpiar();
     } catch (err) { toast({ title: "Error", description: err instanceof Error ? err.message : "Intentá de nuevo.", variant: "destructive" }); }
     finally { setSending(false); }
   };
 
+  const isEditing = !!invoiceToEdit;
+
   return (
     <div className="space-y-4 animate-in fade-in max-w-5xl">
       <div className="flex items-center justify-between">
-        <div><h2 className="text-xl font-bold text-stone-900">Nueva factura</h2><p className="text-sm text-stone-500 mt-0.5">Presioná Enter para avanzar entre campos</p></div>
+        <div>
+          <h2 className="text-xl font-bold text-stone-900">{isEditing ? "Editar factura" : "Nueva factura"}</h2>
+          <p className="text-sm text-stone-500 mt-0.5">Presioná Enter para avanzar entre campos</p>
+        </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={limpiar} disabled={sending} className="gap-1.5 h-9"><RotateCcw className="w-3.5 h-3.5" /> Limpiar</Button>
-          <Button onClick={guardar} disabled={sending} className="gap-1.5 h-9 px-5 bg-purple-800 hover:bg-purple-900 text-white font-semibold shadow-sm"><Save className="w-3.5 h-3.5" /> {sending ? "Guardando..." : "Guardar factura"}</Button>
+          {isEditing && (
+            <Button variant="outline" size="sm" onClick={() => setInvoiceToEdit(null)} disabled={sending} className="gap-1.5 h-9">
+              <X className="w-3.5 h-3.5" /> Cancelar
+            </Button>
+          )}
+          {!isEditing && (
+            <Button variant="outline" size="sm" onClick={limpiar} disabled={sending} className="gap-1.5 h-9">
+              <RotateCcw className="w-3.5 h-3.5" /> Limpiar
+            </Button>
+          )}
+          <Button onClick={guardar} disabled={sending} className="gap-1.5 h-9 px-5 bg-purple-800 hover:bg-purple-900 text-white font-semibold shadow-sm">
+            <Save className="w-3.5 h-3.5" /> {sending ? "Guardando..." : isEditing ? "Guardar cambios" : "Guardar factura"}
+          </Button>
         </div>
       </div>
 
@@ -111,12 +172,19 @@ export function InvoiceForm() {
             { label: "N° Factura", val: numero, set: setNumero, ph: "FC 000-0008806", next: "tipo", af: true },
             { label: "Tipo", val: tipo, set: setTipo, ph: "FC", next: "fecha" },
             { label: "Fecha", val: fecha, set: setFecha, ph: "", next: "proveedor", tp: "date" },
-            { label: "Razón Social", val: proveedor, set: setProveedor, ph: "Nombre del proveedor", next: "items-start" },
+            { label: "Razón Social", val: proveedor, set: setProveedor, ph: "Nombre del proveedor", next: "clienteCodigo" },
+            { label: "Cód. Cliente", val: clienteCodigo, set: setClienteCodigo, ph: "0-00066", next: "clienteDireccion" },
+            { label: "Dirección", val: clienteDireccion, set: setClienteDireccion, ph: "Dirección...", next: "clienteCiudadTel" },
+            { label: "Ciudad / Tel", val: clienteCiudadTel, set: setClienteCiudadTel, ph: "CAPITAL FEDERAL...", next: "condicionVenta" },
+            { label: "Condición", val: condicionVenta, set: setCondicionVenta, ph: "CONTADO", next: "clienteCuit" },
+            { label: "CUIT", val: clienteCuit, set: setClienteCuit, ph: "C.U.I.T.: ...", next: "clienteContacto" },
+            { label: "Contacto", val: clienteContacto, set: setClienteContacto, ph: "CONTACTO : ...", next: "remito" },
+            { label: "Remito", val: remito, set: setRemito, ph: "REMITO N° 00000000", next: "items-start" },
           ].map((f) => (
             <div key={f.label} className="space-y-1">
               <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">{f.label}</label>
               <CellInput value={f.val} onChange={f.set} placeholder={f.ph} type={f.tp || "text"} autoFocus={f.af}
-                inputRef={(el: HTMLInputElement | null) => { headerRefs.current[f.next === "tipo" ? "numero" : f.label] = el; }}
+                inputRef={(el: HTMLInputElement | null) => { headerRefs.current[f.next === "tipo" ? "numero" : f.label === "Remito" ? "remito" : f.next === "items-start" ? "remito" : f.label] = el; }}
                 onKeyDown={(e) => goNext(f.next, e)} />
             </div>
           ))}

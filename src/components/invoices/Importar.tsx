@@ -58,6 +58,7 @@ interface ImportResult {
   exitosas: number;
   conErrores: number;
   vacias: number;
+  tempFileName: string;
 }
 
 interface ExistingInvoice {
@@ -85,7 +86,7 @@ function formatDate(iso: string): string {
 type Paso = "subir" | "revision" | "resultado";
 
 export function Importar() {
-  const { triggerRefresh, setActiveTab, activeProjectId, projects, setActiveProjectId } = useAppStore();
+  const { triggerRefresh, setActiveTab, activeProjectId, projects, setActiveProjectId, setIsUnsaved } = useAppStore();
   const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -116,6 +117,9 @@ export function Importar() {
     datos: CeldaRaw[][];
   } | null>(null);
   const [loadingSheet, setLoadingSheet] = useState(false);
+  const [editingNumberIdx, setEditingNumberIdx] = useState<number | null>(null);
+  const [editingNumberValue, setEditingNumberValue] = useState("");
+  const [filterType, setFilterType] = useState<"todas" | "avisos" | "errores">("todas");
 
   // Cuando el resultado del análisis llega, verificar cuáles ya existen
   useEffect(() => {
@@ -136,6 +140,12 @@ export function Importar() {
       })
       .catch(() => {});
   }, [result, activeProjectId]);
+
+  useEffect(() => {
+    setIsUnsaved(paso === "revision");
+    // Al desmontar, si estábamos importando pero cambiamos de tab (y el usuario aceptó perder progreso), limpiar.
+    return () => setIsUnsaved(false);
+  }, [paso, setIsUnsaved]);
 
   const procesarArchivo = useCallback(async (file: File) => {
     setLoading(true);
@@ -171,49 +181,23 @@ export function Importar() {
     }
   }, [toast]);
 
-  // Ver datos del Excel para una hoja específica
-  const verEnExcel = useCallback(async (sheetName: string) => {
-    if (!uploadedFile) {
-      toast({ title: "Archivo no disponible", description: "El archivo original ya no está en memoria.", variant: "destructive" });
-      return;
-    }
-
+  // Abrir la hoja en el Microsoft Excel nativo del sistema operativo
+  const verEnExcel = useCallback(async (sheetName: string, tempFileName: string) => {
     setLoadingSheet(true);
     try {
-      const buffer = await uploadedFile.arrayBuffer();
-      const XLSX = await import("xlsx");
-      const wb = XLSX.read(buffer, { type: "array" });
-      const ws = wb.Sheets[sheetName];
-      if (!ws || !ws["!ref"]) {
-        toast({ title: "Hoja vacía", description: `La hoja "${sheetName}" no tiene datos.` });
-        setLoadingSheet(false);
-        return;
-      }
-
-      const range = XLSX.utils.decode_range(ws["!ref"]);
-      const datos: CeldaRaw[][] = [];
-
-      for (let r = range.s.r; r <= range.e.r; r++) {
-        const row: CeldaRaw[] = [];
-        let hasData = false;
-        for (let c = range.s.c; c <= range.e.c; c++) {
-          const addr = XLSX.utils.encode_cell({ r, c });
-          const cell = ws[addr];
-          const valor = cell?.v !== undefined ? cell.v : null;
-          const coord = XLSX.utils.encode_cell({ r, c });
-          row.push({ coord, valor });
-          if (valor !== null && valor !== "") hasData = true;
-        }
-        if (hasData) datos.push(row);
-      }
-
-      setViewingSheet({ hoja: sheetName, datos });
+      const res = await fetch("/api/open-excel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sheetName, tempFileName })
+      });
+      if (!res.ok) throw new Error("Fallo al abrir Excel");
+      toast({ title: "Abriendo Excel", description: `Cargando la hoja "${sheetName}" en Microsoft Excel...` });
     } catch {
-      toast({ title: "Error", description: "No se pudo leer la hoja del Excel.", variant: "destructive" });
+      toast({ title: "Error", description: "No se pudo abrir Excel en tu sistema operativo.", variant: "destructive" });
     } finally {
       setLoadingSheet(false);
     }
-  }, [uploadedFile, toast]);
+  }, [toast]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setDragOver(false);
@@ -225,6 +209,15 @@ export function Importar() {
     const file = e.target.files?.[0];
     if (file) procesarArchivo(file);
   }, [procesarArchivo]);
+
+  const updateInvoiceNumber = useCallback((idx: number, newNumber: string) => {
+    setResult((prev) => {
+      if (!prev) return prev;
+      const newFacturas = [...prev.facturas];
+      newFacturas[idx] = { ...newFacturas[idx], numero: newNumber };
+      return { ...prev, facturas: newFacturas };
+    });
+  }, []);
 
   const confirmarImport = async () => {
     if (!result) return;
@@ -243,19 +236,41 @@ export function Importar() {
         return;
       }
 
-      const res = await fetch("/api/import/confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ facturas: facturasAImportar, projectId: projectIdToUse }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      let totalImportadas = 0;
+      let totalOmitidas = 0;
+      const allErrores: string[] = [];
+      const allResumen: string[] = [];
+
+      const CHUNK_SIZE = 50;
+      for (let i = 0; i < facturasAImportar.length; i += CHUNK_SIZE) {
+        const chunk = facturasAImportar.slice(i, i + CHUNK_SIZE);
+        const res = await fetch("/api/import/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ facturas: chunk, projectId: projectIdToUse }),
+        });
+        
+        // Manejar errores de red o parseo seguro
+        let data;
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error("El servidor no respondió correctamente. Puede que el archivo sea demasiado grande.");
+        }
+        
+        if (!res.ok) throw new Error(data.error || "Error al procesar el lote.");
+
+        totalImportadas += data.importadas || 0;
+        totalOmitidas += data.omitidasFecha || 0;
+        if (data.errores) allErrores.push(...data.errores);
+        if (data.resumen) allResumen.push(...data.resumen);
+      }
 
       setImportResult({
-        importadas: data.importadas,
-        omitidasFecha: data.omitidasFecha || 0,
-        errores: data.errores || [],
-        resumen: data.resumen || [],
+        importadas: totalImportadas,
+        omitidasFecha: totalOmitidas,
+        errores: allErrores,
+        resumen: allResumen,
       });
       setPaso("resultado");
       triggerRefresh();
@@ -294,8 +309,13 @@ export function Importar() {
 
   // Al entrar a revisión, setear el proyecto activo como destino
   useEffect(() => {
-    if (paso === "revision" && activeProjectId) {
-      setImportProjectId(activeProjectId);
+    if (paso === "revision") {
+      if (activeProjectId) {
+        setImportProjectId(activeProjectId);
+        setShowProjectPicker(false);
+      } else {
+        setShowProjectPicker(true);
+      }
     }
   }, [paso, activeProjectId]);
 
@@ -526,6 +546,15 @@ export function Importar() {
                 </label>
                 <span className="text-xs text-stone-400">{exitosasSeleccionadas} de {result.facturas.filter(f => f.exito).length} seleccionada(s)</span>
               </div>
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value as any)}
+                className="text-sm border border-stone-300 rounded-md px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
+              >
+                <option value="todas">Mostrar todas</option>
+                <option value="avisos">Solo con avisos</option>
+                <option value="errores">Solo con errores</option>
+              </select>
             </div>
 
             <div className="space-y-2 max-h-[500px] overflow-y-auto">
@@ -536,6 +565,12 @@ export function Importar() {
                 const tienePrecioCero = fac.productos.some((p) => p._precioCero);
                 const tieneDiscrepancia = !!fac._totalDiscrepancia;
                 const tieneTotalCalculado = !!fac._totalCalculado;
+                const totalEsNegativo = fac.total < 0;
+
+                const tieneCualquierAviso = tieneAdvertencias || !tieneFecha || existeEnBD || tienePrecioCero || tieneDiscrepancia || tieneTotalCalculado || fac._numeroDeHoja || totalEsNegativo;
+
+                if (filterType === "avisos" && !tieneCualquierAviso) return null;
+                if (filterType === "errores" && fac.exito) return null;
 
                 return (
                   <div key={idx} className={`rounded-lg border p-3 transition-colors ${
@@ -554,16 +589,48 @@ export function Importar() {
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium text-sm text-stone-900">{fac.numero || "(sin número)"}</span>
+                          {editingNumberIdx === idx ? (
+                            <div className="flex items-center gap-1">
+                              <input 
+                                autoFocus
+                                value={editingNumberValue}
+                                onChange={(e) => setEditingNumberValue(e.target.value)}
+                                className="h-6 text-sm border border-stone-300 rounded px-1.5 focus:ring-1 focus:ring-purple-500 w-32"
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    updateInvoiceNumber(idx, editingNumberValue);
+                                    setEditingNumberIdx(null);
+                                  } else if (e.key === "Escape") {
+                                    setEditingNumberIdx(null);
+                                  }
+                                }}
+                              />
+                              <button onClick={() => { updateInvoiceNumber(idx, editingNumberValue); setEditingNumberIdx(null); }} className="text-purple-600 hover:text-purple-800"><CheckCircle2 className="w-4 h-4" /></button>
+                              <button onClick={() => setEditingNumberIdx(null)} className="text-stone-400 hover:text-stone-600"><XCircle className="w-4 h-4" /></button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1 group/edit">
+                              <span className="font-medium text-sm text-stone-900">{fac.numero || "(sin número)"}</span>
+                              <button 
+                                onClick={() => { setEditingNumberIdx(idx); setEditingNumberValue(fac.numero || ""); }}
+                                className="opacity-0 group-hover/edit:opacity-100 p-0.5 text-stone-400 hover:text-purple-600 transition-all cursor-pointer"
+                                title="Editar número"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                              </button>
+                            </div>
+                          )}
                           {fac.tipo && <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-stone-100">{fac.tipo}</Badge>}
                           {/* Indicadores — informativos, no bloqueantes */}
                           {existeEnBD && <Badge className="text-xs px-1.5 py-0 bg-slate-100 text-slate-700 border-slate-200">Ya existe</Badge>}
                           {fac._numeroDeHoja && <Badge className="text-xs px-1.5 py-0 bg-violet-100 text-violet-700 border-violet-200">N° dudoso</Badge>}
                           {!tieneFecha && fac.exito && <Badge className="text-xs px-1.5 py-0 bg-rose-100 text-rose-700 border-rose-200">Sin fecha</Badge>}
                           {tienePrecioCero && <Badge className="text-xs px-1.5 py-0 bg-orange-100 text-orange-700 border-orange-200">$0</Badge>}
+                          {totalEsNegativo && <Badge className="text-xs px-1.5 py-0 bg-orange-100 text-orange-700 border-orange-200">Total Negativo</Badge>}
                           {tieneDiscrepancia && <Badge className="text-xs px-1.5 py-0 bg-sky-100 text-sky-700 border-sky-200">Discrepancia</Badge>}
                           {tieneTotalCalculado && !tieneDiscrepancia && <Badge className="text-xs px-1.5 py-0 bg-sky-100 text-sky-700 border-sky-200">Total calculado</Badge>}
                           {tieneAdvertencias && <Badge className="text-xs px-1.5 py-0 bg-sky-100 text-sky-700 border-sky-200">{fac.advertencias!.length} aviso(s)</Badge>}
+                          {!fac.exito && fac.errores && fac.errores.length > 0 && <Badge className="text-xs px-1.5 py-0 bg-rose-100 text-rose-700 border-rose-200">{fac.errores[0]}</Badge>}
                           <span className="text-xs text-stone-400">{fac.hoja}</span>
                         </div>
                         <p className="text-xs text-stone-600 mt-0.5">
@@ -574,7 +641,7 @@ export function Importar() {
                       <div className="flex items-center gap-1">
                         {/* Botón Ver en Excel */}
                         <button
-                          onClick={() => verEnExcel(fac.hoja)}
+                          onClick={() => verEnExcel(fac.hoja, result.tempFileName)}
                           disabled={loadingSheet}
                           className="p-1.5 hover:bg-sky-50 rounded-lg transition-colors cursor-pointer group"
                           title="Ver datos originales en el Excel"
@@ -596,7 +663,7 @@ export function Importar() {
                           <FileSpreadsheet className="w-3.5 h-3.5" />
                           <span>Archivo: <strong>{fac.archivoOrigen || "desconocido"}</strong> | Hoja: <strong>{fac.hoja}</strong></span>
                           <button
-                            onClick={() => verEnExcel(fac.hoja)}
+                            onClick={() => verEnExcel(fac.hoja, result.tempFileName)}
                             className="ml-2 text-sky-600 hover:text-sky-800 underline cursor-pointer text-xs"
                           >
                             Ver en Excel
@@ -679,7 +746,6 @@ export function Importar() {
                 <p className="text-sm text-stone-600">
                   Se van a guardar las <strong>{exitosasSeleccionadas} factura(s)</strong> que seleccionaste, exactamente como están.
                   {yaExisten > 0 && ` De esas, ${yaExisten} ya existen en la base de datos.`}
-                  {" "}Las que no tengan fecha se rechazan automáticamente.
                 </p>
               </div>
             </div>
@@ -699,10 +765,11 @@ export function Importar() {
                 </button>
               </div>
               <p className="text-sm font-semibold text-purple-800">
-                {projects.find(p => p.id === importProjectId)?.nombre || (importProjectId ? "Proyecto seleccionado" : "Ningún proyecto")}
+                {(Array.isArray(projects) ? projects : []).find(p => p.id === importProjectId)?.nombre || (importProjectId ? "Proyecto seleccionado" : "Ningún proyecto")}
               </p>
               {importProjectId && (() => {
-                const proj = projects.find(p => p.id === importProjectId);
+                const safeProjects = Array.isArray(projects) ? projects : [];
+                const proj = safeProjects.find(p => p.id === importProjectId);
                 return proj ? (
                   <p className="text-xs text-stone-400 mt-0.5">
                     {proj._count.invoices} factura(s) ya cargada(s) en este proyecto — las nuevas se sumarán
@@ -716,7 +783,7 @@ export function Importar() {
               <div className="mb-4 p-3 rounded-lg bg-stone-50 border border-stone-200 space-y-3">
                 <p className="text-xs font-semibold text-stone-500 uppercase">Seleccionar otro proyecto</p>
                 <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                  {projects.map((p) => (
+                  {(Array.isArray(projects) ? projects : []).map((p) => (
                     <button
                       key={p.id}
                       onClick={() => { setImportProjectId(p.id); setShowProjectPicker(false); }}
@@ -730,7 +797,7 @@ export function Importar() {
                       <span className="text-xs text-stone-400 ml-2">({p._count.invoices} fact.)</span>
                     </button>
                   ))}
-                  {projects.length === 0 && <p className="text-xs text-stone-400 py-2">No hay proyectos creados.</p>}
+                  {(!Array.isArray(projects) || projects.length === 0) && <p className="text-xs text-stone-400 py-2">No hay proyectos creados.</p>}
                 </div>
 
                 <div className="border-t border-stone-200 pt-3">
@@ -774,53 +841,7 @@ export function Importar() {
         </Card>
       </div>
 
-      {/* Dialog: Ver datos del Excel */}
-      {viewingSheet && (
-        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" onClick={() => setViewingSheet(null)}>
-          <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-stone-200 flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <FileSpreadsheet className="w-5 h-5 text-sky-600" />
-                <div>
-                  <h3 className="font-semibold text-stone-900">{viewingSheet.hoja}</h3>
-                  <p className="text-xs text-stone-400">Datos originales del Excel</p>
-                </div>
-              </div>
-              <button onClick={() => setViewingSheet(null)} className="p-2 hover:bg-stone-100 rounded-lg cursor-pointer">
-                <XCircle className="w-5 h-5 text-stone-400" />
-              </button>
-            </div>
-
-            {/* Tabla */}
-            <div className="flex-1 overflow-auto p-4">
-              <table className="w-full text-xs border-collapse">
-                <tbody>
-                  {viewingSheet.datos.map((row, ri) => (
-                    <tr key={ri} className="border-b border-stone-100 hover:bg-stone-50">
-                      <td className="text-stone-300 text-right pr-2 font-mono select-none w-10">{ri + 1}</td>
-                      {row.map((cell, ci) => (
-                        <td key={ci} className={`px-2 py-1 border-r border-stone-100 whitespace-nowrap max-w-[250px] truncate ${
-                          typeof cell.valor === "number" ? "text-right font-mono text-blue-700" :
-                          typeof cell.valor === "string" && cell.valor.toUpperCase().includes("TOTAL") ? "font-bold text-purple-700" :
-                          "text-stone-700"
-                        }`}>
-                          {cell.valor === null || cell.valor === "" ? "" : String(cell.valor)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Footer */}
-            <div className="px-5 py-3 border-t border-stone-200 flex-shrink-0 flex justify-end">
-              <Button variant="outline" size="sm" onClick={() => setViewingSheet(null)}>Cerrar</Button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Dialog: Ver datos del Excel (eliminado, ahora abre nativo) */}
     </>
   );
 }

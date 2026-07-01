@@ -32,6 +32,13 @@ export interface FacturaExtraida {
   _fechaDudosa: boolean;  // true si la fecha no se encontró explícitamente
   _totalCalculado?: boolean; // true si el total se calculó (no encontrado en Excel)
   _totalDiscrepancia?: string; // Descripción de la discrepancia total vs productos
+  clienteCodigo?: string;
+  clienteDireccion?: string;
+  clienteCiudadTel?: string;
+  condicionVenta?: string;
+  clienteCuit?: string;
+  clienteContacto?: string;
+  remito?: string;
 }
 
 // ============================================================
@@ -383,16 +390,22 @@ function extraerProductos(
     if (descripcion && cantidad > 0) {
       encontroProductos = true;
 
-      // ADVERTENCIA: precio = 0 con cantidad > 0
-      const precioCero = pUnit === 0 && totalItem === 0;
+      let descFinal = descripcion;
+      const esCambio = pUnitRaw.toUpperCase().trim() === "CAMBIO";
+      if (esCambio) {
+        descFinal = `${descripcion} (CAMBIO)`;
+      }
+
+      // ADVERTENCIA: precio = 0 con cantidad > 0 (Ignorar si es CAMBIO explícito)
+      const precioCero = pUnit === 0 && totalItem === 0 && !esCambio;
       if (precioCero) {
-        const descCorta = descripcion.length > 40 ? descripcion.substring(0, 40) + "..." : descripcion;
+        const descCorta = descFinal.length > 40 ? descFinal.substring(0, 40) + "..." : descFinal;
         advertencias.push(`Fila ${filaActual + 1}: "${descCorta}" × ${cantidad} uds. con precio $0 — verificar si es correcto`);
       }
 
       // Calcular subtotal: SOLO si el Excel no tiene uno.
       let subtotal: number;
-      if (totalItem > 0) {
+      if (totalItem !== 0) {
         subtotal = totalItem;
       } else {
         subtotal = Math.round(cantidad * pUnit * 100) / 100;
@@ -400,7 +413,7 @@ function extraerProductos(
 
       productos.push({
         codigo,
-        producto: descripcion,
+        producto: descFinal,
         cantidad,
         valorUnit: pUnit,
         subtotal,
@@ -436,24 +449,24 @@ function extraerTotalGeneral(
         // Intentar obtener el valor numérico de la fila TOTAL
         // Probar la columna TOTAL de la cabecera
         const totalVal = getNum(hoja, r, formato.colTotal);
-        if (totalVal > 0) return { total: totalVal, encontrado: true, fila: r };
+        if (totalVal !== 0) return { total: totalVal, encontrado: true, fila: r };
 
         // Probar la columna siguiente a donde encontramos "TOTAL"
         if (c + 1 <= rango.e.c) {
           const totalVal2 = getNum(hoja, r, c + 1);
-          if (totalVal2 > 0) return { total: totalVal2, encontrado: true, fila: r };
+          if (totalVal2 !== 0) return { total: totalVal2, encontrado: true, fila: r };
         }
 
         // Probar la columna anterior
         if (c > 0) {
           const totalVal3 = getNum(hoja, r, c - 1);
-          if (totalVal3 > 0) return { total: totalVal3, encontrado: true, fila: r };
+          if (totalVal3 !== 0) return { total: totalVal3, encontrado: true, fila: r };
         }
 
-        // Probar TODAS las columnas de esta fila buscando un número > 0
+        // Probar TODAS las columnas de esta fila buscando un número != 0
         for (let sc = 0; sc <= Math.min(rango.e.c, 15); sc++) {
           const totalVal4 = getNum(hoja, r, sc);
-          if (totalVal4 > 0) return { total: totalVal4, encontrado: true, fila: r };
+          if (totalVal4 !== 0) return { total: totalVal4, encontrado: true, fila: r };
         }
       }
     }
@@ -463,10 +476,7 @@ function extraerTotalGeneral(
   // Muchas hojas del Excel no tienen etiqueta "TOTAL", solo el número al final
   for (let r = rango.e.r; r >= filaInicio; r--) {
     const val = getNum(hoja, r, formato.colTotal);
-    if (val > 0) {
-      advertencias.push(
-        `Total ${val.toLocaleString("es-AR")} tomado de la fila ${r + 1} (sin etiqueta "TOTAL" visible)`
-      );
+    if (val !== 0) {
       return { total: val, encontrado: false, fila: r };
     }
   }
@@ -524,12 +534,10 @@ export function extraerFacturaDeHoja(
   // 2. Extraer número de factura
   resultado.numero = extraerNumero(hoja, formato.colNumero);
   if (!resultado.numero) {
-    // NO inventar con nombre de hoja. Marcar como error.
-    resultado.errores.push("No se encontró número de factura con patrón FC 00...");
     // Usar nombre de hoja como último recurso PERO marcarlo como dudoso
     resultado.numero = nombreHoja.trim();
     resultado._numeroDeHoja = true;
-    resultado.errores.push(`Número tomado del nombre de hoja: "${nombreHoja}" — verificar manualmente`);
+    advertencias.push(`No se encontró número con patrón FC/FA. Se asignó el nombre de la hoja: "${nombreHoja}"`);
   }
 
   // 3. Extraer tipo
@@ -538,12 +546,37 @@ export function extraerFacturaDeHoja(
   // 4. Extraer fecha — NO inventar
   resultado.fecha = extraerFechaFactura(hoja, formato.colFecha);
   if (!resultado.fecha) {
-    resultado.errores.push("No se encontró fecha válida — NO se inventó fecha");
+    advertencias.push("No se encontró fecha válida en la hoja");
     resultado._fechaDudosa = true;
   }
 
-  // 5. Extraer proveedor/cliente
+  // 5. Extraer proveedor/cliente y metadatos del cliente
   resultado.proveedor = extraerProveedor(hoja);
+  
+  // Extraer Código de Cliente de la Fila 4, asumiendo que el proveedor está en A4 (r=3) y el código por la F4 o cerca
+  for (let c = 3; c <= 8; c++) {
+    const val = getStr(hoja, 3, c);
+    if (val && !FC_PATTERN.test(val)) {
+      resultado.clienteCodigo = val;
+      break;
+    }
+  }
+
+  // Extraer el resto asumiendo el formato fijo de la plantilla (A5 a A9)
+  resultado.clienteDireccion = getStr(hoja, 4, 0); // Fila 5
+  resultado.clienteCiudadTel = getStr(hoja, 5, 0); // Fila 6
+  resultado.condicionVenta = getStr(hoja, 6, 0); // Fila 7
+  resultado.clienteCuit = getStr(hoja, 7, 0); // Fila 8
+  resultado.clienteContacto = getStr(hoja, 8, 0); // Fila 9
+
+  // Extraer remito de la Fila 9 (G9 o H9)
+  for (let c = 5; c <= 8; c++) {
+    const val = getStr(hoja, 8, c);
+    if (val && (val.toUpperCase().includes("REMITO") || /\d+/.test(val))) {
+      resultado.remito = val;
+      break;
+    }
+  }
 
   // 6. Extraer productos
   resultado.productos = extraerProductos(hoja, formato, rango, advertencias);
@@ -552,7 +585,7 @@ export function extraerFacturaDeHoja(
   const filaInicioTotal = formato.filaHeader + 1;
   const totalResult = extraerTotalGeneral(hoja, formato, filaInicioTotal, rango, advertencias);
 
-  if (totalResult.total > 0) {
+  if (totalResult.total !== 0) {
     resultado.total = totalResult.total;
   } else {
     // Calcular desde productos (dato derivado, no inventado)
@@ -565,12 +598,31 @@ export function extraerFacturaDeHoja(
     }
   }
 
+  // Advertencia si el total es negativo
+  if (resultado.total < 0) {
+    advertencias.push(`El total de la factura es negativo (${resultado.total.toLocaleString("es-AR")}). Verificar si es una Nota de Crédito o devolución.`);
+  }
+
   // 8. Verificar discrepancia entre total del Excel y suma de productos
-  if (totalResult.encontrado && resultado.productos.length > 0) {
+  if (totalResult.total !== 0 && resultado.productos.length > 0) {
     const sumaProductos = Math.round(
       resultado.productos.reduce((s, p) => s + p.subtotal, 0) * 100
     ) / 100;
-    if (Math.abs(totalResult.total - sumaProductos) > 0.02) {
+
+    // Si el total se tomó por descarte (sin etiqueta TOTAL)
+    if (!totalResult.encontrado) {
+      if (Math.abs(totalResult.total - sumaProductos) <= 0.02) {
+        // Coincide exactamente con la suma calculada -> Es el total correcto, lo aceptamos
+        totalResult.encontrado = true;
+      } else {
+        // No coincide y no tiene etiqueta -> Lanzamos la advertencia original
+        advertencias.push(
+          `Total ${totalResult.total.toLocaleString("es-AR")} tomado de la fila ${totalResult.fila + 1} (sin etiqueta "TOTAL" visible)`
+        );
+      }
+    }
+
+    if (totalResult.encontrado && Math.abs(totalResult.total - sumaProductos) > 0.02) {
       const diff = Math.abs(totalResult.total - sumaProductos).toFixed(2);
       resultado._totalDiscrepancia = `Excel: ${totalResult.total.toLocaleString("es-AR")} | Suma productos: ${sumaProductos.toLocaleString("es-AR")} | Diferencia: ${diff}`;
       advertencias.push(

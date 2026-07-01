@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Search, Download, Trash2, ChevronLeft, ChevronRight, FileText, X, Filter, ShieldCheck, FileSpreadsheet, AlertCircle } from "lucide-react";
+import { Search, Download, Trash2, ChevronLeft, ChevronRight, FileText, X, Filter, ShieldCheck, FileSpreadsheet, AlertCircle, Pen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -30,10 +30,21 @@ interface Invoice {
   archivoOrigen: string;
   advertencias: string;
   items: InvoiceItem[];
+  clienteCodigo?: string;
+  clienteDireccion?: string;
+  clienteCiudadTel?: string;
+  condicionVenta?: string;
+  clienteCuit?: string;
+  clienteContacto?: string;
+  remito?: string;
 }
 
 function formatMoney(v: number) { return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 2 }).format(v); }
-function formatDate(d: string) { return new Date(d).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }); }
+function formatDate(d: string) {
+  const date = new Date(d);
+  if (date.getFullYear() === 1970) return "Sin fecha";
+  return date.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }); 
+}
 
 function parseAdvertencias(str: string): string[] {
   if (!str) return [];
@@ -46,7 +57,7 @@ function parseAdvertencias(str: string): string[] {
 }
 
 export function InvoiceList() {
-  const { refreshKey, activeProjectId, triggerRefresh } = useAppStore();
+  const { refreshKey, activeProjectId, triggerRefresh, setInvoiceToEdit, setActiveTab } = useAppStore();
   const { toast } = useToast();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -116,6 +127,18 @@ export function InvoiceList() {
       triggerRefresh(); setDeleteTarget(null);
     } catch { toast({ title: "Error", description: "No se pudo eliminar.", variant: "destructive" }); }
     finally { setDeleting(false); }
+  };
+
+  const editarFactura = (inv: Invoice) => {
+    if (inv.hojaOrigen && inv.hojaOrigen !== "creación manual") {
+      toast({
+        title: "Atención al editar",
+        description: "Esta factura fue importada. Esto solo se editará acá en el programa. Para corregirla en tu Excel original debes ir ahí y volver a importar el archivo.",
+        duration: 7000, // Dar tiempo a leer
+      });
+    }
+    setInvoiceToEdit(inv);
+    setActiveTab("crear");
   };
 
   return (
@@ -198,7 +221,8 @@ export function InvoiceList() {
                           {isExpanded ? "ver menos" : "ver todo"}
                         </button>
                       )}
-                      <button onClick={() => setDeleteTarget(inv)} className="text-stone-400 hover:text-rose-600 transition-colors p-1 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                      <button onClick={() => editarFactura(inv)} className="text-stone-400 hover:text-sky-600 transition-colors p-1 cursor-pointer" title="Editar factura"><Pen className="w-4 h-4" /></button>
+                      <button onClick={() => setDeleteTarget(inv)} className="text-stone-400 hover:text-rose-600 transition-colors p-1 cursor-pointer" title="Eliminar factura"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </div>
                 </div>
