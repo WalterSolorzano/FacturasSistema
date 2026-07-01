@@ -1,10 +1,10 @@
-# Sistema de Gestión de Facturas (CUCIMUNDO) 🌻
+# Sistema de Gestión de Facturas (CUCIMUNDO) 
 
 Aplicación de escritorio auto-contenida (portable) diseñada para procesar, auditar, almacenar y analizar facturas masivas en formato Excel. 
 
 El sistema fue creado para resolver el problema de la captura manual de facturas, ofreciendo una interfaz visual intuitiva, detección automática de errores (precios en cero, valores negativos) y un motor de estadísticas de alto rendimiento.
 
-## 🚀 Funcionalidades Principales
+##  Funcionalidades Principales
 
 1. **Importación Inteligente de Lotes:** Sube múltiples archivos Excel a la vez. El sistema lee el formato específico, extrae el cliente, la fecha, y desglosa los productos.
 2. **Auditoría Visual:** Antes de guardar, los usuarios pueden revisar las facturas. El sistema alerta sobre productos con precio `$0` o valores negativos, permitiendo corregirlos antes de ingresarlos a la base de datos.
@@ -20,7 +20,7 @@ El sistema fue creado para resolver el problema de la captura manual de facturas
 
 ---
 
-## 🛠️ Tecnologías y Arquitectura
+##  Tecnologías y Arquitectura
 
 El sistema utiliza una arquitectura híbrida moderna que combina el ecosistema web con capacidades de escritorio nativo en Windows:
 
@@ -45,7 +45,7 @@ Para que el cliente final no tenga que instalar absolutamente nada (ni Node, ni 
 
 ---
 
-## 💻 Guía para el Desarrollador (Cómo trabajar en el proyecto)
+##  Guía para el Desarrollador (Cómo trabajar en el proyecto)
 
 ### Requisitos Locales
 - Node.js (v20+) o Bun instalado en tu PC.
