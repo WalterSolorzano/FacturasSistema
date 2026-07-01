@@ -1,0 +1,27 @@
+export const dynamic = 'force-dynamic';
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+
+/**
+ * Health-check endpoint.
+ * El launcher C# hace polling aquí para confirmar que el servidor Y la base de datos
+ * están listos ANTES de abrir el navegador al usuario final.
+ * Esto evita el error "client-side exception while loading localhost".
+ */
+export async function GET() {
+  try {
+    // Verificar que Prisma puede conectarse a la DB ejecutando una query mínima
+    await db.$queryRaw`SELECT 1`;
+    return NextResponse.json(
+      { status: "ok", db: "connected", timestamp: new Date().toISOString() },
+      { status: 200 }
+    );
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[Health] DB not ready:", msg);
+    return NextResponse.json(
+      { status: "error", db: "disconnected", error: msg },
+      { status: 503 }
+    );
+  }
+}

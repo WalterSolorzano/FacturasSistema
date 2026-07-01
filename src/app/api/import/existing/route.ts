@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/import/existing?projectId=xxx&numeros=FC001,FC002,...
  * Devuelve los números que ya existen en el proyecto.

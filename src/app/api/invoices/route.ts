@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 
@@ -15,13 +16,33 @@ function safeN(v: unknown): number {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { numero, tipo, fechaEmision, proveedor, projectId, items } = body;
+    const { 
+      numero, tipo, fechaEmision, proveedor, projectId, items,
+      clienteCodigo, clienteDireccion, clienteCiudadTel, condicionVenta, clienteCuit, clienteContacto, remito
+    } = body;
 
     if (!numero || !fechaEmision || !projectId || !items || items.length === 0) {
       return NextResponse.json(
         { error: "Faltan datos obligatorios: numero, fechaEmision, projectId y al menos un producto." },
         { status: 400 }
       );
+    }
+
+    const columnsToAdd = [
+      "clienteCodigo TEXT",
+      "clienteDireccion TEXT",
+      "clienteCiudadTel TEXT",
+      "condicionVenta TEXT",
+      "clienteCuit TEXT",
+      "clienteContacto TEXT",
+      "remito TEXT"
+    ];
+    for (const colDef of columnsToAdd) {
+      try {
+        await db.$executeRawUnsafe(`ALTER TABLE Invoice ADD COLUMN ${colDef}`);
+      } catch (e) {
+        // Ignorar
+      }
     }
 
     // Validar fecha
@@ -77,6 +98,13 @@ export async function POST(request: Request) {
         tipo: (tipo || "").trim(),
         fechaEmision: fecha,
         proveedor: (proveedor || "").trim(),
+        clienteCodigo: (clienteCodigo || "").trim(),
+        clienteDireccion: (clienteDireccion || "").trim(),
+        clienteCiudadTel: (clienteCiudadTel || "").trim(),
+        condicionVenta: (condicionVenta || "").trim(),
+        clienteCuit: (clienteCuit || "").trim(),
+        clienteContacto: (clienteContacto || "").trim(),
+        remito: (remito || "").trim(),
         total,
         // Creación manual: sin trazabilidad de archivo
         hojaOrigen: "creación manual",
@@ -119,6 +147,7 @@ export async function GET(request: Request) {
       where.OR = [
         { numero: { contains: busqueda } },
         { proveedor: { contains: busqueda } },
+        { archivoOrigen: { contains: busqueda } },
         { items: { some: { producto: { contains: busqueda } } } },
       ];
     }

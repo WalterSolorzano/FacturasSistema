@@ -3,17 +3,21 @@
 import { AppHeader } from "@/components/invoices/AppHeader";
 import { Dashboard } from "@/components/invoices/Dashboard";
 import { Importar } from "@/components/invoices/Importar";
+import { ImportarLotes } from "@/components/invoices/ImportarLotes";
 import { InvoiceList } from "@/components/invoices/InvoiceList";
 import { InvoiceForm } from "@/components/invoices/InvoiceForm";
+import { Stats } from "@/components/invoices/Stats";
+import { BasesDeDatos } from "@/components/invoices/BasesDeDatos";
 import { useAppStore } from "@/lib/store";
 import { FolderOpen } from "lucide-react";
 
 export default function Home() {
   const { activeTab, activeProjectId, projects, setActiveTab } = useAppStore();
-  const activeProject = projects.find((p) => p.id === activeProjectId);
+  const safeProjects = Array.isArray(projects) ? projects : [];
+  const activeProject = safeProjects.find((p) => p.id === activeProjectId);
 
-  // Si el tab requiere proyecto pero no hay uno seleccionado, mostrar selector
-  const needsProject = activeTab !== "dashboard" && !activeProjectId;
+  // Si el tab requiere proyecto (como crear, consultar o estadisticas) pero no hay uno seleccionado, mostrar selector
+  const needsProject = (activeTab === "crear" || activeTab === "consultar" || activeTab === "estadisticas") && !activeProjectId;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -39,8 +43,11 @@ export default function Home() {
           <>
             {activeTab === "dashboard" && <Dashboard />}
             {activeTab === "importar" && <Importar />}
+            {activeTab === "lotes" && <ImportarLotes />}
             {activeTab === "crear" && <InvoiceForm />}
             {activeTab === "consultar" && <InvoiceList />}
+            {activeTab === "estadisticas" && <Stats />}
+            {activeTab === "bases" && <BasesDeDatos />}
           </>
         )}
       </main>

@@ -23,6 +23,23 @@ node_modules
 # misc
 .DS_Store
 *.pem
+*.exe
+*.zip
+*.rar
+*.7z
+
+# portable release artifacts
+FacturasPortable/bun.exe
+FacturasPortable/app/server.js
+FacturasPortable/app/.next/
+FacturasPortable.zip
+Facturas_Produccion.exe
+FacturasApp.exe
+Facturas.exe
+SistemaFacturas.exe
+runner.exe
+update.zip
+.18bd23df2c6cee1e-00000000.bun-build
 
 # debug
 npm-debug.log*

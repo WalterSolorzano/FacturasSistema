@@ -12,13 +12,21 @@ import {
   FolderPlus,
   Trash2,
   X,
+  BarChart2,
 } from "lucide-react";
+
+import { Database } from "lucide-react";
+
+import { Layers } from "lucide-react";
 
 const tabs: { id: Tab; label: string; icon: React.ReactNode; needsProject: boolean }[] = [
   { id: "dashboard", label: "Inicio", icon: <LayoutDashboard className="w-5 h-5" />, needsProject: false },
-  { id: "importar", label: "Importar", icon: <Upload className="w-5 h-5" />, needsProject: true },
+  { id: "importar", label: "Importar", icon: <Upload className="w-5 h-5" />, needsProject: false },
+  { id: "lotes", label: "Lotes", icon: <Layers className="w-5 h-5" />, needsProject: false },
   { id: "crear", label: "Crear", icon: <Plus className="w-5 h-5" />, needsProject: true },
   { id: "consultar", label: "Consultar", icon: <Search className="w-5 h-5" />, needsProject: true },
+  { id: "estadisticas", label: "Análisis", icon: <BarChart2 className="w-5 h-5" />, needsProject: true },
+  { id: "bases", label: "Bases de Datos", icon: <Database className="w-5 h-5" />, needsProject: false },
 ];
 
 export function AppHeader() {
@@ -28,11 +36,26 @@ export function AppHeader() {
   const [creating, setCreating] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string>("");
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Cargar proyectos al montar
   useEffect(() => {
-    fetch("/api/projects").then((r) => r.json()).then(setProjects).catch(() => {});
+    fetch("/api/projects")
+      .then((r) => {
+        if (!r.ok) throw new Error("Error loading projects");
+        return r.json();
+      })
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setProjects(data);
+        } else {
+          setProjects([]);
+        }
+      })
+      .catch(() => {
+        setProjects([]);
+      });
   }, [setProjects]);
 
   // Cerrar menú al hacer clic fuera
@@ -51,21 +74,37 @@ export function AppHeader() {
   const handleCreateProject = async () => {
     if (!newProjectName.trim() || creating) return;
     setCreating(true);
+    setCreateError("");
     try {
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nombre: newProjectName.trim() }),
       });
-      const project = await res.json();
+
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        // Si la respuesta no es JSON válido (ej: error HTML del servidor)
+        setCreateError("Error al comunicarse con el servidor. Intenta nuevamente.");
+        setCreating(false);
+        return;
+      }
+
       if (res.ok) {
-        setProjects([project, ...projects]);
-        setActiveProjectId(project.id);
+        setProjects([data, ...projects]);
+        setActiveProjectId(data.id);
         setNewProjectName("");
+        setCreateError("");
         setShowNew(false);
         setShowProjectMenu(false);
+      } else {
+        setCreateError(data?.error || "Error al crear el proyecto. Intenta nuevamente.");
       }
-    } catch { /* ignore */ }
+    } catch (err) {
+      setCreateError("No se pudo conectar con el servidor. El sistema puede estar iniciando.");
+    }
     setCreating(false);
   };
 
@@ -175,12 +214,17 @@ export function AppHeader() {
                             {creating ? "Creando..." : "Crear"}
                           </button>
                           <button
-                            onClick={() => { setShowNew(false); setNewProjectName(""); }}
+                            onClick={() => { setShowNew(false); setNewProjectName(""); setCreateError(""); }}
                             className="h-7 px-2 text-xs text-stone-500 hover:text-stone-700 cursor-pointer"
                           >
                             <X className="w-4 h-4" />
                           </button>
                         </div>
+                        {createError && (
+                          <p className="text-xs text-rose-600 bg-rose-50 rounded px-2 py-1 leading-tight">
+                            ⚠ {createError}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <button
