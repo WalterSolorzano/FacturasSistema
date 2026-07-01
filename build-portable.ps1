@@ -115,6 +115,14 @@ if (-not $SkipBuild) {
     $packageJson = Get-Content "package.json" -Raw | ConvertFrom-Json
     $currentVersion = $packageJson.version
 
+    if ([string]::IsNullOrWhiteSpace($UpdateManifestUrl)) {
+        $UpdateManifestUrl = "https://raw.githubusercontent.com/WalterSolorzano/FacturasSistema/main/version.json"
+    }
+
+    if ([string]::IsNullOrWhiteSpace($UpdateDownloadUrl)) {
+        $UpdateDownloadUrl = "https://github.com/WalterSolorzano/FacturasSistema/releases/download/v$currentVersion/update.zip"
+    }
+
     $updateConfig = @{
         current_version = $currentVersion
         manifest_url    = $UpdateManifestUrl
@@ -132,8 +140,6 @@ if (-not $SkipBuild) {
         if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
         Compress-Archive -Path "FacturasPortable\*" -DestinationPath $portableZip -Force
         Write-Host "   ✅ ZIP de actualización generado: $portableZip" -ForegroundColor Green
-    } else {
-        Write-Host "   ⚠️  No se generó update.zip porque faltó -UpdateDownloadUrl." -ForegroundColor Yellow
     }
 } else {
     Write-Host "`n[3/4] Build de Next.js omitido (--SkipBuild)." -ForegroundColor Gray
