@@ -1,4 +1,4 @@
-# Sistema de Gestión de Facturas (CUCIMUNDO) 
+# Sistema de Gestión de Facturas 
 
 Aplicación de escritorio auto-contenida (portable) diseñada para procesar, auditar, almacenar y analizar facturas masivas en formato Excel. 
 
