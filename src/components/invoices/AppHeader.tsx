@@ -12,28 +12,58 @@ import {
   FolderPlus,
   Trash2,
   X,
+  BarChart2,
+  FolderOpen,
+  Download
 } from "lucide-react";
+
+import { Database } from "lucide-react";
+
+import { Layers } from "lucide-react";
 
 const tabs: { id: Tab; label: string; icon: React.ReactNode; needsProject: boolean }[] = [
   { id: "dashboard", label: "Inicio", icon: <LayoutDashboard className="w-5 h-5" />, needsProject: false },
-  { id: "importar", label: "Importar", icon: <Upload className="w-5 h-5" />, needsProject: true },
+  { id: "proyectos", label: "Proyectos", icon: <FolderOpen className="w-5 h-5" />, needsProject: false },
+  { id: "importar", label: "Importar", icon: <Upload className="w-5 h-5" />, needsProject: false },
+  { id: "lotes", label: "Lotes", icon: <Layers className="w-5 h-5" />, needsProject: false },
   { id: "crear", label: "Crear", icon: <Plus className="w-5 h-5" />, needsProject: true },
   { id: "consultar", label: "Consultar", icon: <Search className="w-5 h-5" />, needsProject: true },
+  { id: "estadisticas", label: "Análisis", icon: <BarChart2 className="w-5 h-5" />, needsProject: true },
+  { id: "exportar", label: "Exportar", icon: <Download className="w-5 h-5" />, needsProject: false },
+  { id: "bases", label: "Bases de Datos", icon: <Database className="w-5 h-5" />, needsProject: false },
 ];
 
 export function AppHeader() {
-  const { activeTab, setActiveTab, activeProjectId, setActiveProjectId, projects, setProjects } = useAppStore();
+  const { activeTab, setActiveTab, activeProjectId, setActiveProjectId, projects, setProjects, isUnsaved, setIsUnsaved } = useAppStore();
   const [showProjectMenu, setShowProjectMenu] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [creating, setCreating] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string>("");
+  const [pendingNav, setPendingNav] = useState<{ tab?: Tab, projectId?: string | null } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Cargar proyectos al montar
+  // Cargar proyectos al montar o cuando cambie refreshKey
+  const { refreshKey } = useAppStore();
+  
   useEffect(() => {
-    fetch("/api/projects").then((r) => r.json()).then(setProjects).catch(() => {});
-  }, [setProjects]);
+    fetch("/api/projects")
+      .then((r) => {
+        if (!r.ok) throw new Error("Error loading projects");
+        return r.json();
+      })
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setProjects(data);
+        } else {
+          setProjects([]);
+        }
+      })
+      .catch(() => {
+        setProjects([]);
+      });
+  }, [setProjects, refreshKey]);
 
   // Cerrar menú al hacer clic fuera
   useEffect(() => {
@@ -51,21 +81,37 @@ export function AppHeader() {
   const handleCreateProject = async () => {
     if (!newProjectName.trim() || creating) return;
     setCreating(true);
+    setCreateError("");
     try {
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nombre: newProjectName.trim() }),
       });
-      const project = await res.json();
+
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        // Si la respuesta no es JSON válido (ej: error HTML del servidor)
+        setCreateError("Error al comunicarse con el servidor. Intenta nuevamente.");
+        setCreating(false);
+        return;
+      }
+
       if (res.ok) {
-        setProjects([project, ...projects]);
-        setActiveProjectId(project.id);
+        setProjects([data, ...projects]);
+        setActiveProjectId(data.id);
         setNewProjectName("");
+        setCreateError("");
         setShowNew(false);
         setShowProjectMenu(false);
+      } else {
+        setCreateError(data?.error || "Error al crear el proyecto. Intenta nuevamente.");
       }
-    } catch { /* ignore */ }
+    } catch (err) {
+      setCreateError("No se pudo conectar con el servidor. El sistema puede estar iniciando.");
+    }
     setCreating(false);
   };
 
@@ -85,7 +131,31 @@ export function AppHeader() {
       setShowProjectMenu(true);
       return;
     }
+    if (isUnsaved) {
+      setPendingNav({ tab });
+      return;
+    }
     setActiveTab(tab);
+  };
+
+  const handleProjectSelect = (id: string | null) => {
+    if (isUnsaved) {
+      setPendingNav({ projectId: id });
+      return;
+    }
+    setActiveProjectId(id);
+    setShowProjectMenu(false);
+  };
+
+  const confirmNavigation = () => {
+    setIsUnsaved(false);
+    if (pendingNav?.tab) {
+      setActiveTab(pendingNav.tab);
+    } else if (pendingNav?.projectId !== undefined) {
+      setActiveProjectId(pendingNav.projectId);
+      setShowProjectMenu(false);
+    }
+    setPendingNav(null);
   };
 
   return (
@@ -94,8 +164,8 @@ export function AppHeader() {
         <div className="flex items-center justify-between h-14">
           {/* Logo + Project Selector */}
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-purple-800 flex items-center justify-center flex-shrink-0">
-              <FileText className="w-5 h-5 text-white" />
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+              <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" />
             </div>
 
             <div className="relative" ref={menuRef}>
@@ -130,8 +200,7 @@ export function AppHeader() {
                           activeProjectId === p.id ? "bg-purple-50" : "hover:bg-stone-50"
                         }`}
                         onClick={() => {
-                          setActiveProjectId(p.id);
-                          setShowProjectMenu(false);
+                          handleProjectSelect(p.id);
                         }}
                       >
                         <div className="flex items-center gap-2 min-w-0">
@@ -175,12 +244,17 @@ export function AppHeader() {
                             {creating ? "Creando..." : "Crear"}
                           </button>
                           <button
-                            onClick={() => { setShowNew(false); setNewProjectName(""); }}
+                            onClick={() => { setShowNew(false); setNewProjectName(""); setCreateError(""); }}
                             className="h-7 px-2 text-xs text-stone-500 hover:text-stone-700 cursor-pointer"
                           >
                             <X className="w-4 h-4" />
                           </button>
                         </div>
+                        {createError && (
+                          <p className="text-xs text-rose-600 bg-rose-50 rounded px-2 py-1 leading-tight">
+                            ⚠ {createError}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <button
@@ -229,6 +303,26 @@ export function AppHeader() {
             <div className="flex justify-end gap-2">
               <button onClick={() => setDeletingId(null)} className="px-4 py-2 text-sm text-stone-600 hover:bg-stone-100 rounded-lg cursor-pointer">Cancelar</button>
               <button onClick={() => handleDeleteProject(deletingId)} className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg cursor-pointer font-medium">Eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm unsaved navigation dialog */}
+      {pendingNav && (
+        <div className="fixed inset-0 z-[60] bg-black/30 flex items-center justify-center" onClick={() => setPendingNav(null)}>
+          <div className="bg-white rounded-xl p-6 max-w-md mx-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-semibold text-stone-900 mb-2">¿Seguro que quieres salir?</h3>
+            <p className="text-sm text-stone-600 mb-4">
+              Estás en medio de una importación. Si sales ahora, perderás todo el progreso y las facturas no se guardarán.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setPendingNav(null)} className="px-4 py-2 text-sm text-stone-600 hover:bg-stone-100 rounded-lg cursor-pointer font-medium">
+                Cancelar
+              </button>
+              <button onClick={confirmNavigation} className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg cursor-pointer font-medium">
+                Sí, salir y descartar
+              </button>
             </div>
           </div>
         </div>

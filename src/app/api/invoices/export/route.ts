@@ -1,5 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
+
+export const dynamic = 'force-dynamic';
 import ExcelJS from "exceljs";
 
 const MORADO = "FF6B21A8";
@@ -23,6 +25,7 @@ function formatoFecha(isoStr: string): string {
   if (!isoStr) return "SIN FECHA";
   const d = new Date(isoStr);
   if (isNaN(d.getTime())) return "FECHA INVÁLIDA";
+  if (d.getFullYear() === 1970) return "SIN FECHA";
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const yy = d.getFullYear();
@@ -33,10 +36,13 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const projectId = searchParams.get("projectId");
+    const projectIds = searchParams.get("projectIds");
     const format = searchParams.get("format") || "basedatos";
 
     const where: Record<string, unknown> = {};
-    if (projectId) {
+    if (projectIds) {
+      where.projectId = { in: projectIds.split(",") };
+    } else if (projectId) {
       where.projectId = projectId;
     }
 
@@ -47,10 +53,46 @@ export async function GET(request: Request) {
     });
 
     if (format === "original") {
-      return exportarFormatoOriginal(invoices);
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = "Sistema de Facturas";
+      workbook.created = new Date();
+      await buildFormatoOriginal(workbook, invoices);
+      const buffer = await workbook.xlsx.writeBuffer();
+      return new NextResponse(buffer, {
+        headers: {
+          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Disposition": 'attachment; filename="Facturas_Original.xlsx"',
+        },
+      });
     }
 
-    return exportarBaseDeDatos(invoices);
+    if (format === "ambos") {
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = "Sistema de Facturas";
+      workbook.created = new Date();
+      await buildBaseDeDatos(workbook, invoices);
+      await buildFormatoOriginal(workbook, invoices);
+      const buffer = await workbook.xlsx.writeBuffer();
+      return new NextResponse(buffer, {
+        headers: {
+          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Disposition": 'attachment; filename="Facturas_Completas.xlsx"',
+        },
+      });
+    }
+
+    // format === "basedatos"
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Sistema de Facturas";
+    workbook.created = new Date();
+    await buildBaseDeDatos(workbook, invoices);
+    const buffer = await workbook.xlsx.writeBuffer();
+    return new NextResponse(buffer, {
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": 'attachment; filename="BaseDeDatos.xlsx"',
+      },
+    });
   } catch (error) {
     console.error("Error al exportar:", error);
     return NextResponse.json(
@@ -79,18 +121,28 @@ export async function GET(request: Request) {
 // Fila 13+ (r=12+): Productos
 // Última fila: D=TOTAL, H=valor total
 // ============================================================
-async function exportarFormatoOriginal(invoices: any[]) {
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Sistema de Facturas";
-  workbook.created = new Date();
+async function buildFormatoOriginal(workbook: ExcelJS.Workbook, invoices: any[]) {
+
+  const sheetNames = new Set<string>();
 
   for (const inv of invoices) {
     // Nombre seguro para la hoja (max 31 chars)
     const rawName = inv.numero || "sin-numero";
-    const safeName = rawName
+    let safeName = rawName
       .replace(/[\\/*?\[\]:]/g, "-")
       .substring(0, 31);
-    const ws = workbook.addWorksheet(safeName);
+    
+    // Garantizar que el nombre de la hoja sea único (ExcelJS lanza error si está duplicado)
+    let counter = 1;
+    let finalName = safeName;
+    while (sheetNames.has(finalName)) {
+      counter++;
+      const suffix = ` (${counter})`;
+      finalName = safeName.substring(0, 31 - suffix.length) + suffix;
+    }
+    sheetNames.add(finalName);
+
+    const ws = workbook.addWorksheet(finalName);
 
     // Anchos de columna (coinciden con el Excel original)
     ws.columns = [
@@ -118,41 +170,64 @@ async function exportarFormatoOriginal(invoices: any[]) {
 
     // ---- FILA 3 (r=2): Fecha en H3 ----
     if (inv.fechaEmision) {
-      ws.getCell("H3").value = new Date(inv.fechaEmision);
-      ws.getCell("H3").numFmt = "DD/MM/YYYY";
+      const d = new Date(inv.fechaEmision);
+      if (d.getFullYear() === 1970) {
+        ws.getCell("H3").value = "SIN FECHA";
+      } else {
+        ws.getCell("H3").value = d;
+        ws.getCell("H3").numFmt = "DD/MM/YYYY";
+      }
     }
     ws.getCell("H3").font = plainFont;
 
-    // ---- FILA 4 (r=3): Cliente en A4 ----
+    // ---- FILA 4 (r=3): Cliente en A4, Cód. Cliente en F4 ----
     ws.getCell("A4").value = inv.proveedor || "";
     ws.getCell("A4").font = boldFont;
+    ws.getCell("F4").value = inv.clienteCodigo || "";
+    ws.getCell("F4").font = plainFont;
 
-    // ---- FILA 7 (r=6): CONTADO ----
-    ws.getCell("A7").value = "CONTADO";
+    // ---- FILA 5 (r=4): Dirección ----
+    ws.getCell("A5").value = inv.clienteDireccion || "";
+    ws.getCell("A5").font = plainFont;
+
+    // ---- FILA 6 (r=5): Ciudad y Teléfono ----
+    ws.getCell("A6").value = inv.clienteCiudadTel || "";
+    ws.getCell("A6").font = plainFont;
+
+    // ---- FILA 7 (r=6): Condición de Venta ----
+    ws.getCell("A7").value = inv.condicionVenta || "CONTADO";
     ws.getCell("A7").font = plainFont;
 
+    // ---- FILA 8 (r=7): CUIT ----
+    ws.getCell("A8").value = inv.clienteCuit || "C.U.I.T.: ";
+    ws.getCell("A8").font = plainFont;
+
     // ---- FILA 9 (r=8): CONTACTO + REMITO ----
-    ws.getCell("A9").value = "CONTACTO :";
+    ws.getCell("A9").value = inv.clienteContacto || "CONTACTO :";
     ws.getCell("A9").font = { size: 9, name: "Calibri" };
-    ws.getCell("G9").value = "REMITO N° 00000000";
+    ws.getCell("G9").value = inv.remito || "REMITO N° 00000000";
     ws.getCell("G9").font = { size: 9, name: "Calibri" };
 
-    // ---- FILA 12 (r=11): Encabezados de productos ----
+    // ---- FILA 11 (r=10): Encabezados de productos ----
     // Sin merge, sin color, sin bordes — plano como el original
-    ws.getCell("A12").value = "CANTIDAD";
-    ws.getCell("A12").font = boldFont;
-    ws.getCell("B12").value = "CODIGO";
-    ws.getCell("B12").font = boldFont;
-    ws.getCell("D12").value = "DESCRIPCION";
-    ws.getCell("D12").font = boldFont;
-    ws.getCell("G12").value = "P.UNI";
-    ws.getCell("G12").font = boldFont;
-    ws.getCell("H12").value = "TOTAL";
-    ws.getCell("H12").font = boldFont;
+    ws.getCell("A11").value = "CANTIDAD";
+    ws.getCell("A11").font = boldFont;
+    ws.getCell("B11").value = "CODIGO";
+    ws.getCell("B11").font = boldFont;
+    ws.getCell("D11").value = "DESCRIPCION";
+    ws.getCell("D11").font = boldFont;
+    ws.getCell("G11").value = "P.UNI";
+    ws.getCell("G11").font = boldFont;
+    ws.getCell("H11").value = "TOTAL";
+    ws.getCell("H11").font = boldFont;
 
-    // ---- FILA 13+ (r=12+): Productos ----
-    let row = 13; // Excel 1-indexed
+    // ---- FILA 15+ (r=14+): Productos ----
+    let row = 15; // Excel 1-indexed
+    let totalCantidad = 0;
+    
     for (const item of inv.items) {
+      totalCantidad += item.cantidad;
+      
       // A = CANTIDAD
       ws.getCell(row, 1).value = item.cantidad;
       ws.getCell(row, 1).font = plainFont;
@@ -166,35 +241,50 @@ async function exportarFormatoOriginal(invoices: any[]) {
       ws.getCell(row, 4).value = item.producto;
       ws.getCell(row, 4).font = plainFont;
 
+      let valorUnitExcel: string | number = item.valorUnit;
+      let subtotalExcel: string | number = item.subtotal;
+      
+      if (item.valorUnit === 0) {
+        const prodUpper = item.producto.toUpperCase();
+        if (prodUpper.includes("CAMBIO")) {
+          valorUnitExcel = "CAMBIO";
+          subtotalExcel = "CAMBIO";
+        } else if (prodUpper.includes("DEVOLUCION") || prodUpper.includes("DEVOLUCIÓN")) {
+          valorUnitExcel = "DEVOLUCION";
+          subtotalExcel = "DEVOLUCION";
+        } else {
+          valorUnitExcel = "SIN CARGO";
+          subtotalExcel = "SIN CARGO";
+        }
+      }
+
       // G = P.UNI
-      ws.getCell(row, 7).value = item.valorUnit;
+      ws.getCell(row, 7).value = valorUnitExcel;
       ws.getCell(row, 7).font = plainFont;
-      ws.getCell(row, 7).numFmt = "#,##0.00";
+      if (typeof valorUnitExcel === 'number') ws.getCell(row, 7).numFmt = "#,##0.00";
 
       // H = TOTAL
-      ws.getCell(row, 8).value = item.subtotal;
+      ws.getCell(row, 8).value = subtotalExcel;
       ws.getCell(row, 8).font = plainFont;
-      ws.getCell(row, 8).numFmt = "#,##0.00";
+      if (typeof subtotalExcel === 'number') ws.getCell(row, 8).numFmt = "#,##0.00";
 
       row++;
     }
 
-    // ---- FILA TOTAL (una fila después del último producto) ----
-    const totalRow = row; // Continúa justo después
-    ws.getCell(totalRow, 4).value = "TOTAL";
-    ws.getCell(totalRow, 4).font = boldFont;
-    ws.getCell(totalRow, 8).value = inv.total;
-    ws.getCell(totalRow, 8).font = boldFont;
-    ws.getCell(totalRow, 8).numFmt = "#,##0.00";
+    // ---- FILA TOTAL (unas filas después del último producto) ----
+    const finalTotalRow = row + 10; // Dejamos algo de espacio (como en la imagen que está en la fila 33, mientras los productos terminaron en 21)
+    
+    // Suma de unidades en la columna A
+    ws.getCell(finalTotalRow - 8, 1).value = totalCantidad;
+    ws.getCell(finalTotalRow - 8, 1).font = plainFont;
+    ws.getCell(finalTotalRow - 8, 1).numFmt = "#,##0";
+    
+    // Total en la columna H
+    ws.getCell(finalTotalRow, 8).value = inv.total;
+    ws.getCell(finalTotalRow, 8).font = plainFont;
+    ws.getCell(finalTotalRow, 8).numFmt = "#,##0.00";
   }
 
-  const buffer = await workbook.xlsx.writeBuffer();
-  return new NextResponse(buffer, {
-    headers: {
-      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": 'attachment; filename="Facturas_Original.xlsx"',
-    },
-  });
 }
 
 // ============================================================
@@ -202,10 +292,7 @@ async function exportarFormatoOriginal(invoices: any[]) {
 // Número de Factura | Fecha de Emisión | Nombre del Cliente |
 // Cantidad | Descripción | Costo Unitario | Subtotal | Hoja Origen
 // ============================================================
-async function exportarBaseDeDatos(invoices: any[]) {
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Sistema de Facturas";
-  workbook.created = new Date();
+async function buildBaseDeDatos(workbook: ExcelJS.Workbook, invoices: any[]) {
 
   // ============================================================
   // HOJA 1: BASE DE DATOS
@@ -238,21 +325,22 @@ async function exportarBaseDeDatos(invoices: any[]) {
     "Número de Factura",
     "Fecha de Emisión",
     "Nombre del Cliente",
-    "Cantidad",
-    "Descripción del Producto",
-    "Costo Unitario",
-    "Subtotal",
-    "Hoja de Origen",
-    "Archivo de Origen",
+    "Cantidad de Productos Emitidos",
+    "Descripción/Nombre del Producto Emitido",
+    "Costo de dicho Producto",
+    "",
+    "",
+    "Hoja de Excel Origen",
   ];
 
   const headerRow = bd.addRow(headers);
   headerRow.height = 28;
   headerRow.eachCell((cell, colNumber) => {
+    if (colNumber === 7 || colNumber === 8) return; // Columnas vacías
     cell.font = { bold: true, size: 10, color: { argb: BLANCO }, name: "Calibri" };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MORADO_OSCURO } };
     cell.alignment = {
-      horizontal: colNumber >= 4 ? "right" : "left",
+      horizontal: colNumber >= 4 && colNumber <= 6 ? "right" : "left",
       vertical: "middle",
     };
     aplicarBorde(cell, MORADO);
@@ -263,37 +351,50 @@ async function exportarBaseDeDatos(invoices: any[]) {
     { width: 22, key: "numero" },
     { width: 14, key: "fecha" },
     { width: 35, key: "cliente" },
-    { width: 11, key: "cantidad" },
+    { width: 28, key: "cantidad" },
     { width: 50, key: "producto" },
-    { width: 15, key: "valorUnit" },
-    { width: 15, key: "subtotal" },
+    { width: 22, key: "valorUnit" },
+    { width: 5, key: "vacio1" },
+    { width: 5, key: "vacio2" },
     { width: 20, key: "hojaOrigen" },
-    { width: 30, key: "archivoOrigen" },
   ];
 
   // Datos
   let rowIndex = 3;
   for (const inv of invoices) {
     for (const item of inv.items) {
+      let valorUnitExcel: string | number = item.valorUnit;
+      if (item.valorUnit === 0) {
+        const prodUpper = item.producto.toUpperCase();
+        if (prodUpper.includes("CAMBIO")) {
+          valorUnitExcel = "CAMBIO";
+        } else if (prodUpper.includes("DEVOLUCION") || prodUpper.includes("DEVOLUCIÓN")) {
+          valorUnitExcel = "DEVOLUCION";
+        } else {
+          valorUnitExcel = "SIN CARGO";
+        }
+      }
+
       const row = bd.addRow([
         inv.numero,
         formatoFecha(inv.fechaEmision?.toISOString?.() || ""),
         inv.proveedor || "",
         item.cantidad,
         item.producto,
-        item.valorUnit,
-        item.subtotal,
+        valorUnitExcel,
+        "",
+        "",
         inv.hojaOrigen || "",
-        inv.archivoOrigen || "",
       ]);
 
       row.height = 20;
       const esPar = rowIndex % 2 === 0;
 
       row.eachCell((cell, colNumber) => {
+        if (colNumber === 7 || colNumber === 8) return; // Columnas vacías
         cell.font = { size: 10, name: "Calibri" };
         cell.alignment = {
-          horizontal: colNumber >= 4 && colNumber <= 7 ? "right" : "left",
+          horizontal: colNumber >= 4 && colNumber <= 6 ? "right" : "left",
           vertical: "middle",
         };
         aplicarBorde(cell, GRIS_BORDE);
@@ -304,10 +405,11 @@ async function exportarBaseDeDatos(invoices: any[]) {
       });
 
       row.getCell(4).numFmt = '#,##0';
-      row.getCell(6).numFmt = '#,##0.00';
-      row.getCell(7).numFmt = '#,##0.00';
+      if (typeof valorUnitExcel === 'number') {
+        row.getCell(6).numFmt = '#,##0.00';
+      }
 
-      const hojaCell = row.getCell(8);
+      const hojaCell = row.getCell(9);
       hojaCell.font = { size: 9, name: "Calibri", color: { argb: GRIS_TEXT }, italic: true };
 
       rowIndex++;
@@ -327,8 +429,6 @@ async function exportarBaseDeDatos(invoices: any[]) {
 
     const sumaCantidad = invoices.reduce((s: number, inv: any) =>
       s + inv.items.reduce((si: number, it: any) => si + it.cantidad, 0), 0);
-    const sumaSubtotal = invoices.reduce((s: number, inv: any) =>
-      s + inv.items.reduce((si: number, it: any) => si + it.subtotal, 0), 0);
 
     const cellCant = totalRow.getCell(4);
     cellCant.value = sumaCantidad;
@@ -338,15 +438,8 @@ async function exportarBaseDeDatos(invoices: any[]) {
     cellCant.alignment = { horizontal: "right", vertical: "middle" };
     aplicarBorde(cellCant, MORADO);
 
-    const cellSub = totalRow.getCell(7);
-    cellSub.value = sumaSubtotal;
-    cellSub.numFmt = '#,##0.00';
-    cellSub.font = { bold: true, size: 10, color: { argb: BLANCO }, name: "Calibri" };
-    cellSub.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MORADO } };
-    cellSub.alignment = { horizontal: "right", vertical: "middle" };
-    aplicarBorde(cellSub, MORADO);
-
-    for (const c of [1, 2, 3, 5, 6, 8, 9]) {
+    // Darle fondo morado a las otras celdas para que la línea se vea completa
+    for (const c of [1, 2, 3, 5, 6, 9]) {
       const celda = totalRow.getCell(c);
       celda.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MORADO } };
       aplicarBorde(celda, MORADO);
@@ -355,7 +448,7 @@ async function exportarBaseDeDatos(invoices: any[]) {
 
   bd.autoFilter = {
     from: { row: 3, column: 1 },
-    to: { row: 3 + rowIndex - 3, column: headers.length },
+    to: { row: 3 + rowIndex - 3, column: 9 }, // Hasta columna 9 (I)
   };
   bd.views = [{ state: "frozen", ySplit: 3 }];
 
@@ -436,15 +529,4 @@ async function exportarBaseDeDatos(invoices: any[]) {
   };
   traza.views = [{ state: "frozen", ySplit: 2 }];
 
-  // ============================================================
-  // GENERAR
-  // ============================================================
-  const buffer = await workbook.xlsx.writeBuffer();
-
-  return new NextResponse(buffer, {
-    headers: {
-      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": 'attachment; filename="BaseDeDatos.xlsx"',
-    },
-  });
 }

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type Tab = "dashboard" | "importar" | "consultar" | "crear";
+export type Tab = "dashboard" | "proyectos" | "importar" | "lotes" | "consultar" | "crear" | "estadisticas" | "bases" | "exportar";
 
 export interface ProjectInfo {
   id: string;
@@ -18,6 +18,10 @@ interface AppState {
   setProjects: (p: ProjectInfo[]) => void;
   refreshKey: number;
   triggerRefresh: () => void;
+  invoiceToEdit: any | null;
+  setInvoiceToEdit: (inv: any | null) => void;
+  isUnsaved: boolean;
+  setIsUnsaved: (u: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -29,4 +33,8 @@ export const useAppStore = create<AppState>((set) => ({
   setProjects: (p) => set({ projects: p }),
   refreshKey: 0,
   triggerRefresh: () => set((state) => ({ refreshKey: state.refreshKey + 1 })),
+  invoiceToEdit: null,
+  setInvoiceToEdit: (inv) => set({ invoiceToEdit: inv }),
+  isUnsaved: false,
+  setIsUnsaved: (u) => set({ isUnsaved: u }),
 }));

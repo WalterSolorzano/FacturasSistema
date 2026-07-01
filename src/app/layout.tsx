@@ -16,6 +16,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Facturas",
   description: "Registro y consulta de facturas",
+  icons: {
+    icon: "/logo.png",
+  },
 };
 
 export default function RootLayout({

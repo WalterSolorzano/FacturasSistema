@@ -17,6 +17,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAppStore, type Tab } from "@/lib/store";
+import { ExportModal } from "./ExportModal";
 
 interface Stats {
   totalFacturas: number;
@@ -44,7 +45,9 @@ function formatMoney(value: number): string {
 }
 
 function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const date = new Date(dateStr);
+  if (date.getFullYear() === 1970) return "Sin fecha";
+  return date.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 function StatCard({ icon, label, value, subtitle, color }: {
@@ -66,31 +69,15 @@ function StatCard({ icon, label, value, subtitle, color }: {
   );
 }
 
-function QuickAction({ title, description, tab, icon, needsProject }: {
-  title: string; description: string; tab: string; icon: React.ReactNode; needsProject?: boolean;
+function QuickAction({ title, description, tab, icon, needsProject, onClickAction }: {
+  title: string; description: string; tab: string; icon: React.ReactNode; needsProject?: boolean; onClickAction?: () => void;
 }) {
-  const { setActiveTab, activeProjectId } = useAppStore();
+  const { setActiveTab } = useAppStore();
   const { toast } = useToast();
 
   const handleClick = () => {
-    if (tab === "export") {
-      const params = activeProjectId ? `?projectId=${activeProjectId}` : "?";
-      fetch(`/api/invoices/export${params}`).then((r) => { if (!r.ok) throw new Error(); return r.blob(); }).then((blob) => {
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a"); a.href = url; a.download = "BaseDeDatos.xlsx";
-        document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
-        toast({ title: "Excel descargado", description: "BaseDeDatos.xlsx con Trazabilidad" });
-      }).catch(() => { toast({ title: "Error al exportar", variant: "destructive" }); });
-      return;
-    }
-    if (tab === "export-original") {
-      const base = activeProjectId ? `?projectId=${activeProjectId}` : "?";
-      fetch(`/api/invoices/export${base}&format=original`).then((r) => { if (!r.ok) throw new Error(); return r.blob(); }).then((blob) => {
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a"); a.href = url; a.download = "Facturas_Original.xlsx";
-        document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
-        toast({ title: "Excel descargado", description: "Facturas_Original.xlsx (cada hoja = 1 factura)" });
-      }).catch(() => { toast({ title: "Error al exportar", variant: "destructive" }); });
+    if (onClickAction) {
+      onClickAction();
       return;
     }
     setActiveTab(tab as Tab);
@@ -112,6 +99,7 @@ export function Dashboard() {
   const { refreshKey, activeProjectId, projects } = useAppStore();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,7 +121,8 @@ export function Dashboard() {
   }
 
   const tieneDatos = stats.totalFacturas > 0;
-  const activeProject = projects.find((p) => p.id === activeProjectId);
+  const safeProjects = Array.isArray(projects) ? projects : [];
+  const activeProject = safeProjects.find((p) => p.id === activeProjectId);
 
   return (
     <div className="space-y-6 animate-in fade-in">
@@ -199,14 +188,10 @@ export function Dashboard() {
         <QuickAction title="Importar facturas" description="Subí el archivo Excel con todas las hojas" tab="importar" icon={<Upload className="w-5 h-5" />} needsProject />
         <QuickAction title="Crear factura" description="Ingresá una factura manualmente" tab="crear" icon={<Plus className="w-5 h-5" />} needsProject />
         <QuickAction title="Buscar facturas" description="Buscá por número, producto o fecha" tab="consultar" icon={<Search className="w-5 h-5" />} needsProject />
-        <QuickAction title="Base de Datos" description="Exportá Excel con Trazabilidad" tab="export" icon={<Download className="w-5 h-5" />} />
+        <QuickAction title="Exportar" description="Exportá en Base de Datos o Plantilla" tab="export" icon={<Download className="w-5 h-5" />} onClickAction={() => setShowExportModal(true)} />
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <QuickAction title="Exportar Original" description="Cada hoja = 1 factura en la plantilla original" tab="export-original" icon={<FileText className="w-5 h-5" />} />
-        <div /> {/* spacer para alinear a la izquierda */}
-        <div />
-        <div />
-      </div>
+
+      {showExportModal && <ExportModal onClose={() => setShowExportModal(false)} />}
     </div>
   );
 }

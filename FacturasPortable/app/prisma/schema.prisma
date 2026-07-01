@@ -1,0 +1,52 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id        String    @id @default(cuid())
+  nombre    String                      // Nombre del proyecto/archivo
+  createdAt DateTime  @default(now())
+
+  invoices  Invoice[]
+}
+
+model Invoice {
+  id            String   @id @default(cuid())
+  projectId     String                     // A qué proyecto pertenece
+  numero        String                     // N° de factura (ej: "FC 000-0008805")
+  tipo          String   @default("")     // FC, FA, FB, etc.
+  fechaEmision  DateTime                   // Fecha de la factura
+  proveedor        String   @default("")
+  clienteCodigo    String   @default("")
+  clienteDireccion String   @default("")
+  clienteCiudadTel String   @default("")
+  condicionVenta   String   @default("")
+  clienteCuit      String   @default("")
+  clienteContacto  String   @default("")
+  remito           String   @default("")
+  total            Float
+  hojaOrigen       String   @default("")
+  archivoOrigen    String   @default("")
+  advertencias     String   @default("")
+  createdAt     DateTime @default(now())
+
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items        InvoiceItem[]
+}
+
+model InvoiceItem {
+  id         String  @id @default(cuid())
+  invoiceId  String
+  codigo     String  @default("")       // Código del producto (ej: "S-0100")
+  producto   String                      // Descripción del producto
+  cantidad   Float                       // Cantidad
+  valorUnit  Float                       // Precio unitario
+  subtotal   Float                       // cantidad * valorUnit
+
+  invoice    Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}

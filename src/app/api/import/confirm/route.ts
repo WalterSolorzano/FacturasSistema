@@ -2,6 +2,8 @@ import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import type { FacturaExtraida } from "@/lib/extractor";
 
+export const dynamic = 'force-dynamic';
+
 /**
  * safeN — Convierte un valor a número seguro para Prisma.
  * NUNCA devuelve NaN ni Infinity.
@@ -41,6 +43,9 @@ export async function POST(request: Request) {
       );
     }
 
+    // La migración de columnas faltantes ahora se maneja en /api/health/route.ts al inicio.
+
+
     let importadas = 0;
     let omitidasFecha = 0;
     const erroresDetalle: string[] = [];
@@ -48,7 +53,7 @@ export async function POST(request: Request) {
     // ============================================================
     // IMPORTAR TODO LO QUE EL USUARIO SELECCIONÓ.
     // NO decidir nada: sin auto-duplicados, sin auto-nada.
-    // Solo se rechaza lo que es imposible de guardar (sin fecha, sin productos).
+    // Solo se rechaza lo que es imposible de guardar (ej. sin productos).
     // ============================================================
     for (const fac of facturas) {
       try {
@@ -64,33 +69,27 @@ export async function POST(request: Request) {
         }
 
         // ============================================================
-        // FECHA: NO INVENTAR. Si no hay fecha válida, RECHAZAR.
+        // FECHA: Aceptamos sin fecha, usando 1970-01-01 como bandera
         // ============================================================
-        if (!fac.fecha) {
-          omitidasFecha++;
-          erroresDetalle.push(`${fac.numero}: RECHAZADA — sin fecha válida`);
-          continue;
-        }
-
         let fechaEmision: Date;
-        const d = new Date(fac.fecha);
-        if (isNaN(d.getTime())) {
-          omitidasFecha++;
-          erroresDetalle.push(`${fac.numero}: RECHAZADA — fecha inválida`);
-          continue;
+        const allWarnings: string[] = [];
+
+        if (!fac.fecha) {
+          fechaEmision = new Date(0); // 1970 = "Sin fecha"
+          allWarnings.push("Sin fecha: no se encontró fecha válida");
+        } else {
+          const d = new Date(fac.fecha);
+          if (isNaN(d.getTime()) || d.getFullYear() < 1990 || d.getFullYear() > 2030) {
+            fechaEmision = new Date(0);
+            allWarnings.push(`Sin fecha: la fecha encontrada (${fac.fecha}) no es válida o está fuera de rango`);
+          } else {
+            fechaEmision = d;
+          }
         }
-        if (d.getFullYear() < 1990 || d.getFullYear() > 2030) {
-          omitidasFecha++;
-          erroresDetalle.push(`${fac.numero}: RECHAZADA — fecha fuera de rango (${d.getFullYear()})`);
-          continue;
-        }
-        fechaEmision = d;
 
         // ============================================================
         // RECOLECTAR ADVERTENCIAS DE TRAZABILIDAD
         // ============================================================
-        const allWarnings: string[] = [];
-
         if (fac._numeroDeHoja) {
           allWarnings.push("Numero tomado del nombre de hoja (no del contenido)");
         }
@@ -106,28 +105,116 @@ export async function POST(request: Request) {
           ? JSON.stringify(allWarnings)
           : "";
 
-        await db.invoice.create({
-          data: {
-            projectId,
-            numero: String(fac.numero || "").trim(),
-            tipo: String(fac.tipo || "").trim(),
-            fechaEmision,
-            proveedor: String(fac.proveedor || "").trim(),
-            total,
-            hojaOrigen: String(fac.hoja || "").trim(),
-            archivoOrigen: String(fac.archivoOrigen || "").trim(),
-            advertencias: advertenciasStr,
-            items: {
-              create: fac.productos.map((p) => ({
-                codigo: String(p.codigo || "").trim(),
-                producto: String(p.producto || "").trim(),
-                cantidad: safeN(p.cantidad),
-                valorUnit: safeN(p.valorUnit),
-                subtotal: safeN(p.subtotal),
-              })),
+        const numeroFinal = String(fac.numero || "").trim();
+        const proveedorFinal = String(fac.proveedor || "").trim();
+
+        const dataToSave = {
+          tipo: String(fac.tipo || "").trim(),
+          fechaEmision,
+          total,
+          hojaOrigen: String(fac.hoja || "").trim(),
+          archivoOrigen: String(fac.archivoOrigen || "").trim(),
+          advertencias: advertenciasStr,
+          clienteCodigo: String(fac.clienteCodigo || "").trim(),
+          clienteDireccion: String(fac.clienteDireccion || "").trim(),
+          clienteCiudadTel: String(fac.clienteCiudadTel || "").trim(),
+          condicionVenta: String(fac.condicionVenta || "").trim(),
+          clienteCuit: String(fac.clienteCuit || "").trim(),
+          clienteContacto: String(fac.clienteContacto || "").trim(),
+          remito: String(fac.remito || "").trim(),
+        };
+
+        const itemsToSave = fac.productos.map((p) => ({
+          codigo: String(p.codigo || "").trim(),
+          producto: String(p.producto || "").trim(),
+          cantidad: safeN(p.cantidad),
+          valorUnit: safeN(p.valorUnit),
+          subtotal: safeN(p.subtotal),
+        }));
+
+        let existingInvoice = null;
+        if (numeroFinal) {
+          existingInvoice = await db.invoice.findFirst({
+            where: { projectId, numero: numeroFinal, proveedor: proveedorFinal },
+            include: { items: true }
+          });
+        }
+
+        if (existingInvoice) {
+          // Ya existe: verificar si hubo algún cambio real
+          let isDifferent = false;
+          if (
+            existingInvoice.total !== dataToSave.total ||
+            existingInvoice.fechaEmision.getTime() !== dataToSave.fechaEmision.getTime() ||
+            existingInvoice.tipo !== dataToSave.tipo ||
+            existingInvoice.clienteCodigo !== dataToSave.clienteCodigo ||
+            existingInvoice.clienteDireccion !== dataToSave.clienteDireccion ||
+            existingInvoice.clienteCiudadTel !== dataToSave.clienteCiudadTel ||
+            existingInvoice.condicionVenta !== dataToSave.condicionVenta ||
+            existingInvoice.clienteCuit !== dataToSave.clienteCuit ||
+            existingInvoice.clienteContacto !== dataToSave.clienteContacto ||
+            existingInvoice.remito !== dataToSave.remito ||
+            existingInvoice.items.length !== itemsToSave.length
+          ) {
+            isDifferent = true;
+          } else {
+            // Comparar items
+            for (let i = 0; i < itemsToSave.length; i++) {
+              const oldItem = existingInvoice.items[i];
+              const newItem = itemsToSave[i];
+              if (
+                oldItem.codigo !== newItem.codigo ||
+                oldItem.producto !== newItem.producto ||
+                oldItem.cantidad !== newItem.cantidad ||
+                oldItem.valorUnit !== newItem.valorUnit ||
+                oldItem.subtotal !== newItem.subtotal
+              ) {
+                isDifferent = true;
+                break;
+              }
+            }
+          }
+
+          if (isDifferent) {
+            // Añadir etiqueta ACTUALIZADA a las advertencias
+            let parsedWarnings: string[] = [];
+            try {
+              if (dataToSave.advertencias) parsedWarnings = JSON.parse(dataToSave.advertencias);
+            } catch (e) {}
+            if (!parsedWarnings.includes("ACTUALIZADA")) {
+              parsedWarnings.unshift("ACTUALIZADA");
+            }
+            const finalAdvertencias = JSON.stringify(parsedWarnings);
+
+            await db.invoice.update({
+              where: { id: existingInvoice.id },
+              data: {
+                ...dataToSave,
+                advertencias: finalAdvertencias,
+                items: {
+                  deleteMany: {}, // Borrar items viejos
+                  create: itemsToSave, // Insertar los nuevos
+                }
+              }
+            });
+          } else {
+            // Son idénticas: omitir silenciosamente (ya está importada)
+          }
+        } else {
+          // No existe: crear nueva
+          await db.invoice.create({
+            data: {
+              projectId,
+              numero: numeroFinal,
+              proveedor: proveedorFinal,
+              ...dataToSave,
+              items: {
+                create: itemsToSave,
+              },
             },
-          },
-        });
+          });
+        }
+        
         importadas++;
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);

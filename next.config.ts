@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+import path from "path";
+
 const nextConfig: NextConfig = {
   output: "standalone",
   experimental: {
@@ -11,6 +13,7 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  outputFileTracingRoot: process.cwd(),
 };
 
 export default nextConfig;
