@@ -528,6 +528,13 @@ namespace Launcher
                     exePath = Path.Combine(appPath, "node_zemer.exe");
                 }
 
+                if (!File.Exists(exePath) || !File.Exists(serverJs))
+                {
+                    MessageBox.Show("El motor del sistema fue bloqueado o eliminado por tu Antivirus o Smart App Control.\nPor favor, extrae el archivo en una carpeta segura o añade el programa a las exclusiones.", "Antivirus Detectado", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    Application.Exit();
+                    return;
+                }
+
                 serverProcess = new Process();
                 serverProcess.StartInfo.FileName = exePath;
                 serverProcess.StartInfo.Arguments = "\"" + serverJs + "\"";
@@ -639,6 +646,13 @@ namespace Launcher
             {
                 if (serverProcess != null && !serverProcess.HasExited)
                 {
+                    // Intentar apagado elegante
+                    try {
+                        HttpWebRequest request = (HttpWebRequest)WebRequest.Create(string.Format("http://127.0.0.1:{0}/api/shutdown", selectedPort));
+                        request.Timeout = 1000;
+                        request.GetResponse();
+                    } catch { }
+
                     // Utilizar taskkill para asegurar que se maten todos los hijos
                     Process killP = new Process();
                     killP.StartInfo.FileName = "cmd.exe";

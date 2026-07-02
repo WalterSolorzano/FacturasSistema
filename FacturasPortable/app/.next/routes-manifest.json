@@ -64,6 +64,12 @@
       "namedRegex": "^/api(?:/)?$"
     },
     {
+      "page": "/api/backup",
+      "regex": "^/api/backup(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/backup(?:/)?$"
+    },
+    {
       "page": "/api/health",
       "regex": "^/api/health(?:/)?$",
       "routeKeys": {},
@@ -94,6 +100,12 @@
       "namedRegex": "^/api/import/existing(?:/)?$"
     },
     {
+      "page": "/api/init",
+      "regex": "^/api/init(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/init(?:/)?$"
+    },
+    {
       "page": "/api/invoices",
       "regex": "^/api/invoices(?:/)?$",
       "routeKeys": {},
@@ -112,6 +124,12 @@
       "namedRegex": "^/api/invoices/export\\-inject(?:/)?$"
     },
     {
+      "page": "/api/logs",
+      "regex": "^/api/logs(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/logs(?:/)?$"
+    },
+    {
       "page": "/api/open-excel",
       "regex": "^/api/open\\-excel(?:/)?$",
       "routeKeys": {},
@@ -122,6 +140,12 @@
       "regex": "^/api/projects(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/api/projects(?:/)?$"
+    },
+    {
+      "page": "/api/shutdown",
+      "regex": "^/api/shutdown(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/shutdown(?:/)?$"
     },
     {
       "page": "/api/stats",
