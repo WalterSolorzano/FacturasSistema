@@ -69,7 +69,7 @@ export function Proyectos() {
 
                 <div className="flex items-center gap-2 mb-6 text-sm text-stone-600 bg-stone-50 p-3 rounded-lg border border-stone-100">
                   <FileText className="w-4 h-4 text-purple-500" />
-                  <span className="font-semibold text-stone-900">{p._count.invoices}</span>
+                  <span className="font-semibold text-stone-900">{p._count?.invoices || 0}</span>
                   facturas registradas
                 </div>
 

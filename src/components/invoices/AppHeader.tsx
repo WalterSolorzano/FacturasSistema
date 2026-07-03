@@ -177,8 +177,8 @@ export function AppHeader() {
                   {activeProject ? activeProject.nombre : "Facturas"}
                 </span>
                 {activeProject && (
-                  <span className="text-xs text-stone-400 hidden sm:inline">
-                    ({activeProject._count.invoices})
+                  <span className="text-sm font-normal text-stone-500 ml-2">
+                    ({activeProject._count?.invoices || 0})
                   </span>
                 )}
                 <ChevronDown className="w-4 h-4 text-stone-400" />
@@ -206,7 +206,7 @@ export function AppHeader() {
                         <div className="flex items-center gap-2 min-w-0">
                           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${activeProjectId === p.id ? "bg-purple-600" : "bg-stone-300"}`} />
                           <span className="text-sm text-stone-800 truncate">{p.nombre}</span>
-                          <span className="text-xs text-stone-400">{p._count.invoices}</span>
+                          <span className="text-xs text-stone-400">{p._count?.invoices || 0}</span>
                         </div>
                         <button
                           onClick={(e) => { e.stopPropagation(); setDeletingId(p.id); }}

@@ -17,6 +17,10 @@ export async function POST(req: Request) {
     
     fs.appendFileSync(logPath, logEntry);
     
+    // Disparar backup en segundo plano sin esperar la respuesta
+    // para asegurar que el log de crasheo se suba inmediatamente a GitHub
+    fetch("http://127.0.0.1:" + (process.env.PORT || "3000") + "/api/backup", { method: "POST" }).catch(() => {});
+    
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: "Failed to write log" }, { status: 500 });

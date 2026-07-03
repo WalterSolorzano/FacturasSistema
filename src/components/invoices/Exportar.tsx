@@ -97,7 +97,7 @@ export function Exportar() {
                           {p.nombre}
                         </p>
                         <p className="text-xs text-stone-400">
-                          {p._count.invoices} facturas
+                          {p._count?.invoices || 0} facturas
                         </p>
                       </div>
                       <div className={`w-5 h-5 rounded flex items-center justify-center border ${
