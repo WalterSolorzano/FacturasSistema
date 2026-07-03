@@ -52,3 +52,13 @@ prompt
 server.log
 # Skills directory
 /skills/
+# Ignored large files and data exports
+Facturas_Produccion.exe
+FacturasPortable/node_zemer.exe
+FacturasPortable/bun.exe
+*.xlsx
+*.xlsm
+*.csv
+*.xls
+upload/
+download/
