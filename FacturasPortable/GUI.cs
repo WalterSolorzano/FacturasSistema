@@ -503,17 +503,10 @@ namespace Launcher
                     string bundledDb = Path.Combine(appPath, "app", "prisma", "db", "custom.db");
                     if (File.Exists(bundledDb))
                     {
+                // DATABASE_URL will be passed via environment variables
                         File.Copy(bundledDb, dbPath);
                     }
                 }
-
-                // Force write the correct .env so Prisma standalone doesn't try to use invalid paths
-                try
-                {
-                    string envPath = Path.Combine(appPath, "app", ".env");
-                    File.WriteAllText(envPath, "DATABASE_URL=\"file:" + dbPath.Replace("\\", "/") + "\"");
-                }
-                catch { } // Ignorar si no hay permisos de escritura (ej. Program Files). Se usará la variable de entorno.
 
                 // Find node/bun relative to standard Next.js standalone execution
                 string serverJs = Path.Combine(appPath, "app", "server.js");
@@ -541,6 +534,9 @@ namespace Launcher
                 serverProcess.StartInfo.WorkingDirectory = Path.Combine(appPath, "app");
                 serverProcess.StartInfo.UseShellExecute = false;
                 serverProcess.StartInfo.CreateNoWindow = true;
+                
+                // Inject DATABASE_URL so Next.js/Prisma connects to the correct custom.db without touching .env
+                serverProcess.StartInfo.EnvironmentVariables["DATABASE_URL"] = "file:" + dbPath.Replace("\\", "/");
                 
                 serverProcess.StartInfo.RedirectStandardOutput = true;
                 serverProcess.StartInfo.RedirectStandardError = true;
