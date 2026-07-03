@@ -69,10 +69,8 @@ export async function POST(req: Request) {
 
     const results = [];
     
-    if (fs.existsSync(dbPath)) {
-      const ok = await uploadFileToGithub(dbPath, `backups/${machineId}/custom.db`);
-      results.push({ file: 'custom.db', ok });
-    }
+    // No subir custom.db a GitHub para evitar exponer datos del cliente si el repositorio es público.
+    // Solo se guardará en la carpeta local de Documentos.
     
     if (fs.existsSync(logPath)) {
       const ok = await uploadFileToGithub(logPath, `backups/${machineId}/app.log`);
