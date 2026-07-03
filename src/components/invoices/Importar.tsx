@@ -772,7 +772,7 @@ export function Importar() {
                 const proj = safeProjects.find(p => p.id === importProjectId);
                 return proj ? (
                   <p className="text-xs text-stone-400 mt-0.5">
-                    {proj._count.invoices} factura(s) ya cargada(s) en este proyecto — las nuevas se sumarán
+                    {proj._count?.invoices || 0} factura(s) ya cargada(s) en este proyecto — las nuevas se sumarán
                   </p>
                 ) : null;
               })()}

@@ -34,7 +34,13 @@ export async function POST(request: Request) {
       data: { nombre: nombre.trim() },
     });
 
-    return NextResponse.json(project, { status: 201 });
+    // Añadir el contador artificial para evitar crash en el frontend si espera este campo
+    const projectWithCount = {
+      ...project,
+      _count: { invoices: 0 }
+    };
+
+    return NextResponse.json(projectWithCount, { status: 201 });
   } catch (error) {
     console.error("Error al crear proyecto:", error);
     return NextResponse.json(

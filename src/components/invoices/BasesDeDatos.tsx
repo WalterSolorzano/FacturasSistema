@@ -93,7 +93,7 @@ export function BasesDeDatos() {
                         </div>
                         <div>
                           <p className="font-semibold text-stone-900">{project.nombre}</p>
-                          <p className="text-xs text-stone-500">{project._count.invoices} facturas registradas</p>
+                          <p className="text-xs text-stone-500">{project._count?.invoices || 0} facturas registradas</p>
                         </div>
                       </div>
                     </div>
