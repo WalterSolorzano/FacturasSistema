@@ -58,6 +58,11 @@ FacturasPortable/node_zemer.exe
 FacturasPortable/bun.exe
 *.xlsx
 *.xlsm
+overview_log.txt
+worklog.md
+desktop.ini
+*server_log.txt
+*.log.txt
 *.csv
 *.xls
 upload/
